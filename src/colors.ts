@@ -1,7 +1,7 @@
 export const COLORS = {
     MAP: {
         NORMAL: "#69b3a2",
-        HIGHTLIGHT: "#ffcc00",
+        HIGHLIGHT: "#ffcc00",
         BORDERS: "white",
     },
     TOOLTIP: {
