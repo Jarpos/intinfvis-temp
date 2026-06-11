@@ -7,6 +7,8 @@ import * as config from "../config";
 //
 // "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/refs/heads/main/3_regierungsbezirke/1_sehr_hoch.geo.json"
 // "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/refs/heads/main/4_kreise/1_sehr_hoch.geo.json"
+//
+// https://github.com/leakyMirror/map-of-europe/tree/master
 export const geojson = await d3.json("/data/geo/1_sehr_hoch.geo.json") as GeoJSON.FeatureCollection;
 
 export const projection = d3.geoMercator()
