@@ -6,6 +6,7 @@ import { type Configuration } from "webpack";
 import "webpack-dev-server";
 import HtmlWebpackPlugin from "html-webpack-plugin";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
+import CopyPlugin from "copy-webpack-plugin";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,9 @@ const config: Configuration = {
         }),
         // Add your plugins here
         // Learn more about plugins from https://webpack.js.org/configuration/plugins/
+        new CopyPlugin({
+            patterns: [{ from: "data", to: "data" }],
+        }),
     ],
     module: {
         rules: [
