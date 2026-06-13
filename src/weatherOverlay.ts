@@ -10,6 +10,7 @@ import {
   temperatureBand,
   temperatureColor,
   temperatureLegendStops,
+  toDateInputValue,
 } from "./data/weather";
 import type {
   TemperatureCell,
@@ -22,8 +23,9 @@ type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
   status: HTMLDivElement;
   slider: HTMLInputElement;
-  timeLabel: HTMLDivElement;
+  timeLabel: HTMLInputElement;
   stepMarks: HTMLDivElement;
+  timeBubble: HTMLDivElement;
   currentCells: TemperatureCell[];
 };
 
@@ -130,55 +132,195 @@ function injectOverlayStyles() {
         .weather-timeline {
             position: fixed;
             right: 24px;
-            bottom: 22px;
+            bottom: 18px;
             left: 24px;
             z-index: 10;
             display: grid;
-            grid-template-columns: minmax(112px, 0.18fr) 1fr minmax(128px, 0.18fr);
-            gap: 16px;
-            align-items: center;
-            padding: 13px 16px;
+            gap: 5px;
+            padding: 9px 44px 15px;
             border-radius: 7px;
             color: #f7fbff;
         }
 
+        .weather-timeline-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 18px;
+            gap: 16px;
+            color: rgba(247, 251, 255, 0.78);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
         .weather-time {
-            font-size: 19px;
+            width: 120px;
+            border: 0;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.14);
+            color: #f7fbff;
+            font-size: 11px;
             font-weight: 800;
             letter-spacing: 0;
-            white-space: nowrap;
+            line-height: 1;
+            padding: 3px 5px;
+            color-scheme: dark;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .weather-time:disabled {
+            cursor: wait;
+            opacity: 0.68;
         }
 
         .weather-status {
             color: rgba(247, 251, 255, 0.72);
             font-size: 12px;
-            text-align: right;
+            text-align: left;
         }
 
         .weather-slider-wrap {
+            position: relative;
             display: grid;
-            gap: 7px;
+            gap: 0;
             min-width: 0;
+            height: 58px;
+            padding-top: 19px;
         }
 
         .weather-slider {
+            position: relative;
+            z-index: 4;
             width: 100%;
-            accent-color: #ffcc00;
+            height: 20px;
+            margin: 0;
+            appearance: none;
+            -webkit-appearance: none;
+            background: transparent;
             cursor: pointer;
+        }
+
+        .weather-slider::-webkit-slider-runnable-track {
+            height: 20px;
+            background: transparent;
+            border: 0;
+        }
+
+        .weather-slider::-webkit-slider-thumb {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 4px;
+            height: 26px;
+            margin-top: -3px;
+            border: 0;
+            border-radius: 2px;
+            background: #ff7a16;
+            box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
+        }
+
+        .weather-slider::-moz-range-track {
+            height: 20px;
+            background: transparent;
+            border: 0;
+        }
+
+        .weather-slider::-moz-range-thumb {
+            width: 4px;
+            height: 26px;
+            border: 0;
+            border-radius: 2px;
+            background: #ff7a16;
+            box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
         }
 
         .weather-step-marks {
             position: relative;
-            height: 16px;
-            color: rgba(247, 251, 255, 0.66);
+            height: 34px;
+            margin-top: -7px;
+            color: rgba(247, 251, 255, 0.86);
             font-size: 11px;
+            border-top: 2px solid rgba(255, 255, 255, 0.74);
         }
 
-        .weather-step-marks span {
+        .weather-hour-tick {
             position: absolute;
             top: 0;
+            width: 1px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.56);
             transform: translateX(-50%);
+        }
+
+        .weather-hour-tick.is-six-hour {
+            height: 14px;
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .weather-hour-tick.is-noon {
+            height: 22px;
+            width: 2px;
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .weather-day-label {
+            position: absolute;
+            top: 25px;
+            transform: translateX(-50%);
+            display: grid;
+            gap: 1px;
+            min-width: 78px;
+            color: #f7fbff;
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1.05;
+            text-align: center;
             white-space: nowrap;
+        }
+
+        .weather-day-label small {
+            color: rgba(247, 251, 255, 0.78);
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .weather-date-label {
+            top: 15px;
+            min-width: 126px;
+            pointer-events: auto;
+        }
+
+        .weather-time-bubble {
+            position: absolute;
+            left: var(--weather-progress, 50%);
+            top: 0;
+            z-index: 5;
+            min-width: 52px;
+            padding: 4px 8px;
+            border-radius: 5px;
+            background: rgba(18, 28, 24, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 800;
+            line-height: 1;
+            text-align: center;
+            transform: translateX(-50%);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
+            pointer-events: none;
+        }
+
+        .weather-time-bubble::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -6px;
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 6px solid rgba(18, 28, 24, 0.96);
+            transform: translateX(-50%);
         }
 
         .weather-contour {
@@ -209,14 +351,25 @@ function injectOverlayStyles() {
                 left: 10px;
                 right: 10px;
                 bottom: 10px;
-                grid-template-columns: 1fr;
-                gap: 8px;
-                padding: 10px 12px;
+                padding: 8px 14px 10px;
             }
 
-            .weather-time,
-            .weather-status {
-                text-align: left;
+            .weather-timeline-meta {
+                font-size: 11px;
+            }
+
+            .weather-day-label {
+                font-size: 10px;
+                min-width: 62px;
+            }
+
+            .weather-date-label {
+                min-width: 110px;
+            }
+
+            .weather-time {
+                width: 104px;
+                font-size: 10px;
             }
         }
     `;
@@ -265,12 +418,26 @@ function createTimeline() {
   const timeline = document.createElement("div");
   timeline.className = "weather-timeline";
 
-  const timeLabel = document.createElement("div");
+  const meta = document.createElement("div");
+  meta.className = "weather-timeline-meta";
+
+  const utcLabel = document.createElement("div");
+  utcLabel.textContent = "UTC+02:00 Europe/Berlin";
+
+  const timeLabel = document.createElement("input");
   timeLabel.className = "weather-time";
-  timeLabel.textContent = "Loading";
+  timeLabel.type = "date";
+  timeLabel.min = "2022-01-01";
+  timeLabel.max = toDateInputValue(new Date());
+  timeLabel.value = toDateInputValue(new Date());
+  timeLabel.disabled = true;
 
   const sliderWrap = document.createElement("div");
   sliderWrap.className = "weather-slider-wrap";
+
+  const timeBubble = document.createElement("div");
+  timeBubble.className = "weather-time-bubble";
+  timeBubble.textContent = "00:00";
 
   const slider = document.createElement("input");
   slider.className = "weather-slider";
@@ -290,26 +457,156 @@ function createTimeline() {
   status.className = "weather-status";
   status.textContent = "Fetching Open-Meteo";
 
-  timeline.append(timeLabel, sliderWrap, status);
+  meta.append(utcLabel, status);
+  sliderWrap.append(timeBubble, slider, stepMarks);
+  timeline.append(meta, sliderWrap);
   document.body.append(timeline);
 
-  return { status, slider, timeLabel, stepMarks };
+  return { status, slider, timeLabel, stepMarks, timeBubble };
 }
 
-function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
-  const marks = [0, 0.25, 0.5, 0.75, 1];
+function formatDayName(date: Date) {
+  return new Intl.DateTimeFormat("de-ID", {
+    weekday: "long",
+    timeZone: "Europe/Berlin",
+  }).format(date);
+}
+
+function formatDayDate(date: Date) {
+  return new Intl.DateTimeFormat("de-ID", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Berlin",
+  })
+    .format(date)
+    .replace(/\.+$/, "");
+}
+
+function hourPosition(index: number, hours: WeatherHour[]) {
+  return hours.length <= 1 ? 0 : (index / (hours.length - 1)) * 100;
+}
+
+function sameCalendarDate(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function dayKey(date: Date) {
+  return toDateInputValue(date);
+}
+
+function noonForDate(date: Date) {
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    12,
+    0,
+    0,
+    0,
+  );
+}
+
+function closestIndexForDateLabel(hours: WeatherHour[], date: Date) {
+  const noon = noonForDate(date);
+  const candidates = hours
+    .map((hour, index) => ({ hour, index }))
+    .filter(({ hour }) => sameCalendarDate(hour.time, date));
+
+  return candidates.reduce(
+    (best, candidate) => {
+      const distance = Math.abs(candidate.hour.time.getTime() - noon.getTime());
+      return distance < best.distance
+        ? { index: candidate.index, distance }
+        : best;
+    },
+    { index: 0, distance: Number.POSITIVE_INFINITY },
+  ).index;
+}
+
+function updateStepMarks(
+  container: HTMLDivElement,
+  hours: WeatherHour[],
+  selectedDate: Date,
+  datePicker: HTMLInputElement,
+) {
   container.replaceChildren();
 
-  marks.forEach((ratio) => {
-    const index = Math.round(ratio * (hours.length - 1));
-    const mark = document.createElement("span");
-    mark.style.left = `${ratio * 100}%`;
-    mark.textContent =
-      ratio === 1
-        ? "Now"
-        : formatTime.format(hours[index].time).replace(",", "");
-    container.append(mark);
+  hours.forEach((hour, index) => {
+    const tick = document.createElement("span");
+    tick.className = "weather-hour-tick";
+    tick.style.left = `${hourPosition(index, hours)}%`;
+
+    if (hour.time.getHours() % 6 === 0) {
+      tick.classList.add("is-six-hour");
+    }
+
+    if (hour.time.getHours() === 12) {
+      tick.classList.add("is-noon");
+    }
+
+    container.append(tick);
   });
+
+  const labelDates = Array.from(
+    new Map(hours.map((hour) => [dayKey(hour.time), hour.time])).values(),
+  );
+
+  labelDates.forEach((date) => {
+    const index = closestIndexForDateLabel(hours, date);
+    const hour = hours[index];
+    const isSelectedDate = sameCalendarDate(date, selectedDate);
+
+    if (isSelectedDate) {
+      const pickerWrap = document.createElement("div");
+      pickerWrap.className = "weather-day-label weather-date-label";
+      pickerWrap.style.left = `${hourPosition(index, hours)}%`;
+      pickerWrap.append(datePicker);
+      container.append(pickerWrap);
+      return;
+    }
+
+    const label = document.createElement("div");
+    label.className = "weather-day-label";
+    label.style.left = `${hourPosition(index, hours)}%`;
+    label.innerHTML = `<span>${formatDayName(hour.time)}</span><small>${formatDayDate(hour.time)}</small>`;
+    container.append(label);
+  });
+}
+
+function dateFromInputValue(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (!year || !month || !day) {
+    return new Date();
+  }
+
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function selectedDateTargetTime(selectedDate: Date) {
+  return new Date(
+    selectedDate.getFullYear(),
+    selectedDate.getMonth(),
+    selectedDate.getDate(),
+    12,
+    0,
+    0,
+    0,
+  );
+}
+
+function closestHourIndex(hours: WeatherHour[], target: Date) {
+  return hours.reduce(
+    (best, hour, index) => {
+      const distance = Math.abs(hour.time.getTime() - target.getTime());
+      return distance < best.distance ? { index, distance } : best;
+    },
+    { index: 0, distance: Number.POSITIVE_INFINITY },
+  ).index;
 }
 
 function renderHour(
@@ -319,7 +616,17 @@ function renderHour(
 ) {
   const hour = dataset.hours[index];
   const cells = buildTemperatureCells(dataset, hour);
+  const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
+  overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  });
+  overlay.timeBubble.parentElement?.style.setProperty(
+    "--weather-progress",
+    `${progress}%`,
+  );
 
   overlay.layer
     .selectAll<SVGRectElement, (typeof cells)[number]>("rect.weather-cell")
@@ -337,8 +644,7 @@ function renderHour(
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
 
-  overlay.timeLabel.textContent = formatTime.format(hour.time).replace(",", "");
-  overlay.status.textContent = `Historic data only · ${dataset.points.length} samples`;
+  overlay.status.textContent = `${formatTime.format(hour.time).replace(",", "")} · ${dataset.points.length} samples`;
 }
 
 function bindTooltip(
@@ -413,28 +719,58 @@ export async function appendWeatherOverlay(
     .attr("stroke-width", 0.8)
     .attr("pointer-events", "none");
 
-  try {
-    const dataset = await loadHistoricalTemperatures();
+  const loadAndRender = async (selectedDate: Date) => {
+    controls.slider.disabled = true;
+    controls.timeLabel.disabled = true;
+    controls.status.textContent = "Fetching Open-Meteo";
+
+    const dataset = await loadHistoricalTemperatures(selectedDate);
 
     if (dataset.hours.length === 0) {
       throw new Error("No historic hourly temperatures returned");
     }
 
     controls.slider.disabled = false;
+    controls.timeLabel.disabled = false;
+    controls.timeLabel.value = toDateInputValue(dataset.selectedDate);
+    controls.timeLabel.max = toDateInputValue(new Date());
     controls.slider.max = `${dataset.hours.length - 1}`;
-    controls.slider.value = `${dataset.hours.length - 1}`;
-    updateStepMarks(controls.stepMarks, dataset.hours);
+    controls.slider.value = `${closestHourIndex(
+      dataset.hours,
+      selectedDateTargetTime(dataset.selectedDate),
+    )}`;
+    updateStepMarks(
+      controls.stepMarks,
+      dataset.hours,
+      dataset.selectedDate,
+      controls.timeLabel,
+    );
 
     const getIndex = () => Number(controls.slider.value);
 
-    controls.slider.addEventListener("input", () => {
+    controls.slider.oninput = () => {
       renderHour(overlay, dataset, getIndex());
-    });
+    };
 
     renderHour(overlay, dataset, getIndex());
-    bindTooltip(layer, overlay);
+  };
+
+  bindTooltip(layer, overlay);
+
+  controls.timeLabel.addEventListener("change", () => {
+    loadAndRender(dateFromInputValue(controls.timeLabel.value)).catch(
+      (error) => {
+        controls.timeLabel.disabled = false;
+        controls.status.textContent =
+          error instanceof Error ? error.message : "Could not load weather";
+      },
+    );
+  });
+
+  try {
+    await loadAndRender(new Date());
   } catch (error) {
-    controls.timeLabel.textContent = "Unavailable";
+    controls.timeLabel.disabled = false;
     controls.status.textContent =
       error instanceof Error ? error.message : "Could not load weather";
 

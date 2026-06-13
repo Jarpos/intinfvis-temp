@@ -4,7 +4,7 @@ import { HEIGHT, WIDTH } from "../config";
 import { geojson, projection } from "./geo";
 
 const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
-const HOURS_TO_LOAD = 72;
+const DAYS_AROUND_SELECTED_DATE = 2;
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 8;
 const CONTOUR_CELL_SIZE = 16;
@@ -24,6 +24,7 @@ export type WeatherHour = {
 export type WeatherDataset = {
   points: WeatherPoint[];
   hours: WeatherHour[];
+  selectedDate: Date;
 };
 
 export type TemperatureCell = {
@@ -117,11 +118,26 @@ function buildWeatherGrid(): WeatherPoint[] {
   return points;
 }
 
-const toDateInputValue = (date: Date) => {
+export const toDateInputValue = (date: Date) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${year}-${month}-${day}`;
+};
+
+const startOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+const endOfDay = (date: Date) => {
+  const end = startOfDay(date);
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+const addDays = (date: Date, days: number) => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
 };
 
 const startOfCurrentHour = () => {
@@ -130,10 +146,20 @@ const startOfCurrentHour = () => {
   return date;
 };
 
-function buildWeatherUrl(points: WeatherPoint[]) {
-  const end = startOfCurrentHour();
-  const start = new Date(end);
-  start.setHours(start.getHours() - (HOURS_TO_LOAD - 1));
+function getWeatherWindow(selectedDate: Date) {
+  const currentHour = startOfCurrentHour();
+  const selectedDay = startOfDay(selectedDate);
+  const start = startOfDay(addDays(selectedDay, -DAYS_AROUND_SELECTED_DATE));
+  const requestedEnd = endOfDay(
+    addDays(selectedDay, DAYS_AROUND_SELECTED_DATE),
+  );
+  const end = requestedEnd > currentHour ? currentHour : requestedEnd;
+
+  return { start, end, selectedDay };
+}
+
+function buildWeatherUrl(points: WeatherPoint[], selectedDate: Date) {
+  const { start, end } = getWeatherWindow(selectedDate);
 
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
@@ -161,9 +187,12 @@ const normalizeResponses = (
   data: OpenMeteoLocationResponse | OpenMeteoLocationResponse[],
 ) => (Array.isArray(data) ? data : [data]);
 
-export async function loadHistoricalTemperatures(): Promise<WeatherDataset> {
+export async function loadHistoricalTemperatures(
+  selectedDate = new Date(),
+): Promise<WeatherDataset> {
   const points = buildWeatherGrid();
-  const response = await fetch(buildWeatherUrl(points));
+  const { start, end, selectedDay } = getWeatherWindow(selectedDate);
+  const response = await fetch(buildWeatherUrl(points, selectedDay));
 
   if (!response.ok) {
     throw new Error(`Open-Meteo returned ${response.status}`);
@@ -192,11 +221,14 @@ export async function loadHistoricalTemperatures(): Promise<WeatherDataset> {
       return { time, label, values };
     })
     .filter(
-      (hour) => hour.time <= currentHour && hour.values.some(Number.isFinite),
-    )
-    .slice(-HOURS_TO_LOAD);
+      (hour) =>
+        hour.time >= start &&
+        hour.time <= end &&
+        hour.time <= currentHour &&
+        hour.values.some(Number.isFinite),
+    );
 
-  return { points, hours };
+  return { points, hours, selectedDate: selectedDay };
 }
 
 function interpolateTemperature(
@@ -261,10 +293,13 @@ export function buildTemperatureContours(
           ring.map(([x, y]) => [x * CONTOUR_CELL_SIZE, y * CONTOUR_CELL_SIZE]),
         ),
       ),
-        }));
+    }));
 }
 
-export function buildTemperatureCells(dataset: WeatherDataset, hour: WeatherHour) {
+export function buildTemperatureCells(
+  dataset: WeatherDataset,
+  hour: WeatherHour,
+) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
   const projectedPoints = dataset.points
