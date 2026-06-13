@@ -7,6 +7,7 @@ import {
   buildTemperatureContours,
   loadHistoricalTemperatures,
   temperatureColor,
+  temperatureLegendStops,
 } from "./data/weather";
 import type { WeatherDataset, WeatherHour } from "./data/weather";
 import { geojson, projection } from "./data/geo";
@@ -108,15 +109,7 @@ function injectOverlayStyles() {
 
         .weather-gradient {
             border-radius: 4px;
-            background: linear-gradient(
-                to top,
-                ${temperatureColor(TEMPERATURE_RANGE[0])},
-                ${temperatureColor(-5)},
-                ${temperatureColor(8)},
-                ${temperatureColor(18)},
-                ${temperatureColor(28)},
-                ${temperatureColor(TEMPERATURE_RANGE[1])}
-            );
+            background: linear-gradient(to top, ${temperatureLegendStops.join(", ")});
         }
 
         .weather-ticks {
@@ -239,12 +232,16 @@ function createLegend() {
         <div class="weather-legend-scale">
             <div class="weather-gradient"></div>
             <div class="weather-ticks">
-                <span>45</span>
+                <span>50</span>
+                <span>40</span>
                 <span>30</span>
-                <span>15</span>
+                <span>20</span>
+                <span>10</span>
                 <span>0</span>
                 <span>-10</span>
                 <span>-20</span>
+                <span>-30</span>
+                <span>-40</span>
             </div>
         </div>
     `;
