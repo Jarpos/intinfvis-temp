@@ -23,13 +23,13 @@ type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
   status: HTMLDivElement;
   slider: HTMLInputElement;
-  timeLabel: HTMLInputElement;
+  timeLabel: HTMLButtonElement;
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
   currentCells: TemperatureCell[];
 };
 
-const formatTime = new Intl.DateTimeFormat("de-ID", {
+const formatTime = new Intl.DateTimeFormat("de-DE", {
   weekday: "short",
   day: "2-digit",
   month: "2-digit",
@@ -174,6 +174,100 @@ function injectOverlayStyles() {
             opacity: 0.68;
         }
 
+        .weather-calendar {
+            position: fixed;
+            z-index: 30;
+            width: 306px;
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 8px;
+            background: rgba(24, 28, 27, 0.98);
+            color: #f7fbff;
+            box-shadow: 0 18px 44px rgba(0, 0, 0, 0.44);
+        }
+
+        .weather-calendar[hidden] {
+            display: none;
+        }
+
+        .weather-calendar-header {
+            display: grid;
+            grid-template-columns: 34px 1fr 34px;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .weather-calendar-month {
+            justify-self: center;
+            padding: 6px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            border-radius: 5px;
+            color: rgba(247, 251, 255, 0.92);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .weather-calendar-nav,
+        .weather-calendar-day {
+            border: 0;
+            color: #f7fbff;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        .weather-calendar-nav {
+            width: 34px;
+            height: 34px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.08);
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .weather-calendar-nav:disabled,
+        .weather-calendar-day:disabled {
+            cursor: default;
+            opacity: 0.34;
+        }
+
+        .weather-calendar-weekdays,
+        .weather-calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 6px;
+        }
+
+        .weather-calendar-weekdays {
+            margin-bottom: 6px;
+            color: rgba(247, 251, 255, 0.58);
+            font-size: 12px;
+            font-weight: 800;
+            text-align: center;
+        }
+
+        .weather-calendar-day {
+            height: 34px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.08);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .weather-calendar-day.is-weekend {
+            color: #ff6969;
+        }
+
+        .weather-calendar-day.is-outside {
+            color: rgba(247, 251, 255, 0.36);
+        }
+
+        .weather-calendar-day.is-selected {
+            background: #0b65d8;
+            color: #ffffff;
+            box-shadow: 0 0 0 2px #5da2ff;
+        }
+
         .weather-status {
             color: rgba(247, 251, 255, 0.72);
             font-size: 12px;
@@ -285,7 +379,7 @@ function injectOverlayStyles() {
         }
 
         .weather-date-label {
-            top: 15px;
+            top: 25px;
             min-width: 126px;
             pointer-events: auto;
         }
@@ -371,6 +465,10 @@ function injectOverlayStyles() {
                 width: 104px;
                 font-size: 10px;
             }
+
+            .weather-calendar {
+                width: min(306px, calc(100vw - 24px));
+            }
         }
     `;
 
@@ -424,12 +522,10 @@ function createTimeline() {
   const utcLabel = document.createElement("div");
   utcLabel.textContent = "UTC+02:00 Europe/Berlin";
 
-  const timeLabel = document.createElement("input");
+  const timeLabel = document.createElement("button");
   timeLabel.className = "weather-time";
-  timeLabel.type = "date";
-  timeLabel.min = "2022-01-01";
-  timeLabel.max = toDateInputValue(new Date());
-  timeLabel.value = toDateInputValue(new Date());
+  timeLabel.type = "button";
+  timeLabel.textContent = formatGermanDate(new Date());
   timeLabel.disabled = true;
 
   const sliderWrap = document.createElement("div");
@@ -465,15 +561,42 @@ function createTimeline() {
   return { status, slider, timeLabel, stepMarks, timeBubble };
 }
 
+function formatGermanDate(date: Date) {
+  return new Intl.DateTimeFormat("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Europe/Berlin",
+  }).format(date);
+}
+
+function formatGermanMonth(date: Date) {
+  return new Intl.DateTimeFormat("de-DE", {
+    month: "long",
+    year: "numeric",
+    timeZone: "Europe/Berlin",
+  }).format(date);
+}
+
+function createGermanCalendar() {
+  const calendar = document.createElement("div");
+  calendar.className = "weather-calendar";
+  calendar.hidden = true;
+  calendar.addEventListener("click", (event) => event.stopPropagation());
+  document.body.append(calendar);
+
+  return calendar;
+}
+
 function formatDayName(date: Date) {
-  return new Intl.DateTimeFormat("de-ID", {
+  return new Intl.DateTimeFormat("de-DE", {
     weekday: "long",
     timeZone: "Europe/Berlin",
   }).format(date);
 }
 
 function formatDayDate(date: Date) {
-  return new Intl.DateTimeFormat("de-ID", {
+  return new Intl.DateTimeFormat("de-DE", {
     day: "2-digit",
     month: "2-digit",
     timeZone: "Europe/Berlin",
@@ -531,7 +654,7 @@ function updateStepMarks(
   container: HTMLDivElement,
   hours: WeatherHour[],
   selectedDate: Date,
-  datePicker: HTMLInputElement,
+  datePicker: HTMLButtonElement,
 ) {
   container.replaceChildren();
 
@@ -577,16 +700,6 @@ function updateStepMarks(
   });
 }
 
-function dateFromInputValue(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-
-  if (!year || !month || !day) {
-    return new Date();
-  }
-
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
-}
-
 function selectedDateTargetTime(selectedDate: Date) {
   return new Date(
     selectedDate.getFullYear(),
@@ -597,6 +710,127 @@ function selectedDateTargetTime(selectedDate: Date) {
     0,
     0,
   );
+}
+
+function monthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function addDays(date: Date, days: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
+
+function isBeforeDate(left: Date, right: Date) {
+  return (
+    new Date(left.getFullYear(), left.getMonth(), left.getDate()).getTime() <
+    new Date(right.getFullYear(), right.getMonth(), right.getDate()).getTime()
+  );
+}
+
+function isAfterDate(left: Date, right: Date) {
+  return (
+    new Date(left.getFullYear(), left.getMonth(), left.getDate()).getTime() >
+    new Date(right.getFullYear(), right.getMonth(), right.getDate()).getTime()
+  );
+}
+
+function positionCalendar(calendar: HTMLDivElement, trigger: HTMLElement) {
+  const rect = trigger.getBoundingClientRect();
+  const top = rect.top - calendar.offsetHeight - 10;
+  const left = rect.left + rect.width / 2 - calendar.offsetWidth / 2;
+
+  calendar.style.top = `${Math.max(10, top)}px`;
+  calendar.style.left = `${Math.min(
+    window.innerWidth - calendar.offsetWidth - 10,
+    Math.max(10, left),
+  )}px`;
+}
+
+function renderGermanCalendar(
+  calendar: HTMLDivElement,
+  visibleMonth: Date,
+  selectedDate: Date,
+  onVisibleMonthChange: (date: Date) => void,
+  onDateSelected: (date: Date) => void,
+) {
+  const minDate = new Date(2022, 0, 1);
+  const maxDate = new Date();
+  const start = monthStart(visibleMonth);
+  const mondayOffset = (start.getDay() + 6) % 7;
+  const gridStart = addDays(start, -mondayOffset);
+  const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+
+  calendar.replaceChildren();
+
+  const header = document.createElement("div");
+  header.className = "weather-calendar-header";
+
+  const previous = document.createElement("button");
+  previous.className = "weather-calendar-nav";
+  previous.type = "button";
+  previous.textContent = "‹";
+  previous.disabled = !isAfterDate(start, minDate);
+  previous.addEventListener("click", () => {
+    onVisibleMonthChange(addMonths(visibleMonth, -1));
+  });
+
+  const month = document.createElement("div");
+  month.className = "weather-calendar-month";
+  month.textContent = formatGermanMonth(visibleMonth);
+
+  const next = document.createElement("button");
+  next.className = "weather-calendar-nav";
+  next.type = "button";
+  next.textContent = "›";
+  next.disabled = !isBeforeDate(start, monthStart(maxDate));
+  next.addEventListener("click", () => {
+    onVisibleMonthChange(addMonths(visibleMonth, 1));
+  });
+
+  header.append(previous, month, next);
+
+  const weekdayRow = document.createElement("div");
+  weekdayRow.className = "weather-calendar-weekdays";
+  weekdays.forEach((weekday) => {
+    const label = document.createElement("span");
+    label.textContent = weekday;
+    weekdayRow.append(label);
+  });
+
+  const grid = document.createElement("div");
+  grid.className = "weather-calendar-grid";
+
+  for (let index = 0; index < 42; index += 1) {
+    const date = addDays(gridStart, index);
+    const day = document.createElement("button");
+    day.className = "weather-calendar-day";
+    day.type = "button";
+    day.textContent = `${date.getDate()}`;
+
+    if (date.getMonth() !== visibleMonth.getMonth()) {
+      day.classList.add("is-outside");
+    }
+
+    if (date.getDay() === 0 || date.getDay() === 6) {
+      day.classList.add("is-weekend");
+    }
+
+    if (sameCalendarDate(date, selectedDate)) {
+      day.classList.add("is-selected");
+    }
+
+    day.disabled = isBeforeDate(date, minDate) || isAfterDate(date, maxDate);
+    day.addEventListener("click", () => onDateSelected(noonForDate(date)));
+    grid.append(day);
+  }
+
+  calendar.append(header, weekdayRow, grid);
 }
 
 function closestHourIndex(hours: WeatherHour[], target: Date) {
@@ -684,6 +918,9 @@ export async function appendWeatherOverlay(
   createLegend();
 
   const controls = createTimeline();
+  const calendar = createGermanCalendar();
+  let selectedDate = noonForDate(new Date());
+  let visibleCalendarMonth = monthStart(selectedDate);
   const svg = g.node()?.ownerSVGElement;
   const clipId = "weather-germany-clip";
 
@@ -732,8 +969,7 @@ export async function appendWeatherOverlay(
 
     controls.slider.disabled = false;
     controls.timeLabel.disabled = false;
-    controls.timeLabel.value = toDateInputValue(dataset.selectedDate);
-    controls.timeLabel.max = toDateInputValue(new Date());
+    controls.timeLabel.textContent = formatGermanDate(dataset.selectedDate);
     controls.slider.max = `${dataset.hours.length - 1}`;
     controls.slider.value = `${closestHourIndex(
       dataset.hours,
@@ -757,18 +993,51 @@ export async function appendWeatherOverlay(
 
   bindTooltip(layer, overlay);
 
-  controls.timeLabel.addEventListener("change", () => {
-    loadAndRender(dateFromInputValue(controls.timeLabel.value)).catch(
-      (error) => {
-        controls.timeLabel.disabled = false;
-        controls.status.textContent =
-          error instanceof Error ? error.message : "Could not load weather";
+  const showCalendar = () => {
+    renderGermanCalendar(
+      calendar,
+      visibleCalendarMonth,
+      selectedDate,
+      (nextMonth) => {
+        visibleCalendarMonth = nextMonth;
+        showCalendar();
+      },
+      (nextDate) => {
+        calendar.hidden = true;
+        selectedDate = nextDate;
+        visibleCalendarMonth = monthStart(nextDate);
+        loadAndRender(nextDate).catch((error) => {
+          controls.timeLabel.disabled = false;
+          controls.status.textContent =
+            error instanceof Error ? error.message : "Could not load weather";
+        });
       },
     );
+    calendar.hidden = false;
+    positionCalendar(calendar, controls.timeLabel);
+  };
+
+  controls.timeLabel.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (calendar.hidden) {
+      showCalendar();
+    } else {
+      calendar.hidden = true;
+    }
+  });
+
+  document.addEventListener("click", () => {
+    calendar.hidden = true;
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      calendar.hidden = true;
+    }
   });
 
   try {
-    await loadAndRender(new Date());
+    await loadAndRender(selectedDate);
   } catch (error) {
     controls.timeLabel.disabled = false;
     controls.status.textContent =
