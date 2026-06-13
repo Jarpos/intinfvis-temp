@@ -4,12 +4,18 @@ import { COLORS } from "./colors";
 import { HEIGHT, WIDTH, tooltip } from "./config";
 import {
   TEMPERATURE_RANGE,
-  buildTemperatureContours,
+  buildTemperatureCells,
+  displayedTemperature,
   loadHistoricalTemperatures,
+  temperatureBand,
   temperatureColor,
   temperatureLegendStops,
 } from "./data/weather";
-import type { WeatherDataset, WeatherHour } from "./data/weather";
+import type {
+  TemperatureCell,
+  WeatherDataset,
+  WeatherHour,
+} from "./data/weather";
 import { geojson, projection } from "./data/geo";
 
 type WeatherOverlay = {
@@ -18,14 +24,14 @@ type WeatherOverlay = {
   slider: HTMLInputElement;
   timeLabel: HTMLDivElement;
   stepMarks: HTMLDivElement;
+  currentCells: TemperatureCell[];
 };
-
-type TemperatureContour = GeoJSON.MultiPolygon & { value?: number };
 
 const formatTime = new Intl.DateTimeFormat("de-ID", {
   weekday: "short",
   day: "2-digit",
   month: "2-digit",
+  year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
   timeZone: "Europe/Berlin",
@@ -179,6 +185,11 @@ function injectOverlayStyles() {
             pointer-events: none;
         }
 
+        .weather-cell {
+            shape-rendering: crispEdges;
+            pointer-events: none;
+        }
+
         @media (max-width: 720px) {
             .weather-panel {
                 left: 10px;
@@ -307,26 +318,24 @@ function renderHour(
   index: number,
 ) {
   const hour = dataset.hours[index];
-  const contours = buildTemperatureContours(dataset, hour);
-  const path = d3.geoPath();
+  const cells = buildTemperatureCells(dataset, hour);
+  overlay.currentCells = cells;
 
   overlay.layer
-    .selectAll<SVGPathElement, TemperatureContour>("path")
-    .data(contours)
-    .join("path")
-    .attr("class", "weather-contour")
-    .attr("d", path)
-    .attr("fill", (d) => temperatureColor(d.value ?? 0))
-    .attr(
-      "stroke",
-      (d) =>
-        d3
-          .color(temperatureColor(d.value ?? 0))
-          ?.darker(0.45)
-          .formatHex() ?? "transparent",
+    .selectAll<SVGRectElement, (typeof cells)[number]>("rect.weather-cell")
+    .data(cells)
+    .join("rect")
+    .attr("class", "weather-cell")
+    .attr("x", (d) => d.x)
+    .attr("y", (d) => d.y)
+    .attr("width", (d) => d.size)
+    .attr("height", (d) => d.size)
+    .attr("fill", (d) => temperatureColor(d.temperature))
+    .attr("data-temperature", (d) =>
+      displayedTemperature(d.temperature).toFixed(1),
     )
-    .attr("stroke-width", 0.25)
-    .attr("opacity", 0.62);
+    .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
+    .attr("opacity", 1);
 
   overlay.timeLabel.textContent = formatTime.format(hour.time).replace(",", "");
   overlay.status.textContent = `Historic data only · ${dataset.points.length} samples`;
@@ -334,42 +343,29 @@ function renderHour(
 
 function bindTooltip(
   layer: d3.Selection<SVGGElement, undefined, null, undefined>,
-  dataset: WeatherDataset,
-  currentIndex: () => number,
+  overlay: WeatherOverlay,
 ) {
-  const projectedPoints = dataset.points
-    .map((point, index) => ({
-      index,
-      projected: projection([point.longitude, point.latitude]),
-    }))
-    .filter(
-      (item): item is { index: number; projected: [number, number] } =>
-        item.projected !== null,
-    );
-
   layer
     .on("mousemove", (event) => {
       const [x, y] = d3.pointer(event, layer.node());
-      let bestIndex = -1;
-      let bestDistance = Number.POSITIVE_INFINITY;
+      const cell = overlay.currentCells.find(
+        (candidate) =>
+          x >= candidate.x &&
+          x < candidate.x + candidate.size &&
+          y >= candidate.y &&
+          y < candidate.y + candidate.size,
+      );
+      const temperature = cell?.temperature;
 
-      projectedPoints.forEach(({ index, projected }) => {
-        const distance = (x - projected[0]) ** 2 + (y - projected[1]) ** 2;
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestIndex = index;
-        }
-      });
-
-      const temperature = dataset.hours[currentIndex()]?.values[bestIndex];
-
-      if (Number.isFinite(temperature)) {
+      if (typeof temperature === "number" && Number.isFinite(temperature)) {
         tooltip
           .style("display", "block")
           .style("left", `${event.pageX + 10}px`)
           .style("top", `${event.pageY + 10}px`)
           .style("background", COLORS.TOOLTIP.BACKGROUND)
-          .text(`${temperature.toFixed(1)} °C`);
+          .text(`${displayedTemperature(temperature).toFixed(1)} °C`);
+      } else {
+        tooltip.style("display", "none");
       }
     })
     .on("mouseleave", () => tooltip.style("display", "none"));
@@ -407,7 +403,15 @@ export async function appendWeatherOverlay(
     .attr("fill", "transparent")
     .attr("pointer-events", "all");
 
-  const overlay: WeatherOverlay = { layer, ...controls };
+  const overlay: WeatherOverlay = { layer, currentCells: [], ...controls };
+
+  g.append("path")
+    .datum(geojson)
+    .attr("d", d3.geoPath(projection))
+    .attr("fill", "none")
+    .attr("stroke", "rgba(255, 255, 255, 0.58)")
+    .attr("stroke-width", 0.8)
+    .attr("pointer-events", "none");
 
   try {
     const dataset = await loadHistoricalTemperatures();
@@ -428,7 +432,7 @@ export async function appendWeatherOverlay(
     });
 
     renderHour(overlay, dataset, getIndex());
-    bindTooltip(layer, dataset, getIndex);
+    bindTooltip(layer, overlay);
   } catch (error) {
     controls.timeLabel.textContent = "Unavailable";
     controls.status.textContent =

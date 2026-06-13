@@ -26,6 +26,13 @@ export type WeatherDataset = {
   hours: WeatherHour[];
 };
 
+export type TemperatureCell = {
+  x: number;
+  y: number;
+  size: number;
+  temperature: number;
+};
+
 export const TEMPERATURE_RANGE = [-40, 50] as const;
 
 const temperatureRamp = d3
@@ -46,8 +53,14 @@ const temperatureRamp = d3
   ])
   .clamp(true);
 
+export const displayedTemperature = (temperature: number) =>
+  Math.round(temperature * 10) / 10;
+
+export const temperatureBand = (temperature: number) =>
+  Math.round(displayedTemperature(temperature));
+
 export const temperatureColor = (temperature: number) =>
-  temperatureRamp(Math.round(temperature));
+  temperatureRamp(temperatureBand(temperature));
 
 export const temperatureLegendStops = d3
   .range(TEMPERATURE_RANGE[0], TEMPERATURE_RANGE[1] + 1, 1)
@@ -248,5 +261,33 @@ export function buildTemperatureContours(
           ring.map(([x, y]) => [x * CONTOUR_CELL_SIZE, y * CONTOUR_CELL_SIZE]),
         ),
       ),
-    }));
+        }));
+}
+
+export function buildTemperatureCells(dataset: WeatherDataset, hour: WeatherHour) {
+  const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
+  const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
+  const projectedPoints = dataset.points
+    .map((point) => projection([point.longitude, point.latitude]))
+    .filter((point): point is [number, number] => point !== null);
+  const cells: TemperatureCell[] = [];
+
+  for (let row = 0; row < gridHeight; row += 1) {
+    for (let column = 0; column < gridWidth; column += 1) {
+      const x = column * CONTOUR_CELL_SIZE;
+      const y = row * CONTOUR_CELL_SIZE;
+      const temperature = interpolateTemperature(
+        x + CONTOUR_CELL_SIZE / 2,
+        y + CONTOUR_CELL_SIZE / 2,
+        projectedPoints,
+        hour.values,
+      );
+
+      if (Number.isFinite(temperature)) {
+        cells.push({ x, y, size: CONTOUR_CELL_SIZE, temperature });
+      }
+    }
+  }
+
+  return cells;
 }
