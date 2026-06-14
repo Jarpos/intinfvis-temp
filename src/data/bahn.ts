@@ -3,17 +3,31 @@ import * as d3 from "d3";
 import { COLORS } from "../colors";
 import { projection } from "./geo";
 
-export function appendTrainStrecken(g: d3.Selection<SVGGElement, undefined, null, undefined>) {
+export function appendTrainStrecken(
+    g: d3.Selection<SVGGElement, undefined, null, undefined>
+) {
+    const stationByEva = new Map(
+        stations.map(s => [String(s.eva), s])
+    );
+    const segments = trips.flatMap(trip =>
+        trip.stops.slice(0, -1)
+            .map((stop, i) => ({
+                source: stationByEva.get(String(stop.stop_id)),
+                target: stationByEva.get(String(trip.stops[i + 1].stop_id))
+            }))
+            .filter(d => d.source && d.target)
+    );
+
     return g.append("g")
         .selectAll("line")
-        .data(connections)
+        .data(segments)
         .join("line")
-        .attr("x1", d => projection(stations[d[0]].coords as [number, number])![0])
-        .attr("y1", d => projection(stations[d[0]].coords as [number, number])![1])
-        .attr("x2", d => projection(stations[d[1]].coords as [number, number])![0])
-        .attr("y2", d => projection(stations[d[1]].coords as [number, number])![1])
+        .attr("x1", d => projection(d.source!.coords as [number, number])![0])
+        .attr("y1", d => projection(d.source!.coords as [number, number])![1])
+        .attr("x2", d => projection(d.target!.coords as [number, number])![0])
+        .attr("y2", d => projection(d.target!.coords as [number, number])![1])
         .attr("stroke", COLORS.TRAINS.LINES)
-        .attr("stroke-width", 2);
+        .attr("stroke-width", .5);
 }
 
 export function appendTrainStations(g: d3.Selection<SVGGElement, undefined, null, undefined>) {
@@ -46,3 +60,22 @@ export async function loadStations() {
 export const stations = await loadStations();
 
 export const connections = [];
+export const trips = await d3.csv("/data/bahn/csv/delays/2021-09-08.csv", d => ({
+    trip_id: d.trip_id,
+    stop_id: d.stop_id,
+    stop_sequence: +d.stop_sequence,
+    delay: +d.delay,
+})).then(data => {
+    const trips = d3.group(data, d => d.trip_id);
+    const tripList = Array.from(trips, ([trip_id, stops]) => ({
+        trip_id,
+        stops: stops
+        .sort((a, b) => a.stop_sequence - b.stop_sequence)
+        .map(d => ({
+            stop_id: +d.stop_id,
+            stop_sequence: d.stop_sequence,
+            delay: d.delay,
+        }))
+    }));
+    return tripList;
+});
