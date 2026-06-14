@@ -13,7 +13,8 @@ export function appendTrainStrecken(
         trip.stops.slice(0, -1)
             .map((stop, i) => ({
                 source: stationByEva.get(String(stop.stop_id)),
-                target: stationByEva.get(String(trip.stops[i + 1].stop_id))
+                target: stationByEva.get(String(trip.stops[i + 1].stop_id)),
+                delay: trip.stops[i + 1].delay
             }))
             .filter(d => d.source && d.target)
     );
@@ -26,7 +27,13 @@ export function appendTrainStrecken(
         .attr("y1", d => projection(d.source!.coords as [number, number])![1])
         .attr("x2", d => projection(d.target!.coords as [number, number])![0])
         .attr("y2", d => projection(d.target!.coords as [number, number])![1])
-        .attr("stroke", COLORS.TRAINS.LINES)
+        // .attr("stroke", COLORS.TRAINS.LINES)
+        .attr("stroke", d =>
+            d.delay >= 300 ? "#d73027" :
+            d.delay >= 120 ? "#fc8d59" :
+            d.delay >= 60  ? "#fee08b" :
+                             "#1a9850"
+        )
         .attr("stroke-width", .5);
 }
 
