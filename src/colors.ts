@@ -10,6 +10,6 @@ export const COLORS = {
     },
     TRAINS: {
         LINES: "black",
-        STATIONS: "red",
+        STATIONS: "#17130344",
     },
 };
