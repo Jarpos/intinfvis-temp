@@ -48,7 +48,7 @@ appendTrainStations(g)
 
 const zoom = d3
     .zoom<SVGSVGElement, undefined>()
-    .scaleExtent([1, 20])
+    .scaleExtent([.75, 20])
     .on("zoom", (event) => g.attr("transform", event.transform));
 map_svg.call(zoom);
 
