@@ -23,6 +23,7 @@ type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
   status: HTMLDivElement;
   slider: HTMLInputElement;
+  sliderWrap: HTMLDivElement;
   timeLabel: HTMLButtonElement;
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
@@ -558,7 +559,7 @@ function createTimeline() {
   timeline.append(meta, sliderWrap);
   document.body.append(timeline);
 
-  return { status, slider, timeLabel, stepMarks, timeBubble };
+  return { status, slider, sliderWrap, timeLabel, stepMarks, timeBubble };
 }
 
 function formatGermanDate(date: Date) {
@@ -843,6 +844,12 @@ function closestHourIndex(hours: WeatherHour[], target: Date) {
   ).index;
 }
 
+function hourIndexFromPointer(event: MouseEvent, element: HTMLElement, hours: WeatherHour[]) {
+  const rect = element.getBoundingClientRect();
+  const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+  return Math.round(ratio * (hours.length - 1));
+}
+
 function renderHour(
   overlay: WeatherOverlay,
   dataset: WeatherDataset,
@@ -921,6 +928,10 @@ export async function appendWeatherOverlay(
   const calendar = createGermanCalendar();
   let selectedDate = noonForDate(new Date());
   let visibleCalendarMonth = monthStart(selectedDate);
+  let activeDataset: WeatherDataset | null = null;
+  let selectedHourIndex = 0;
+  let renderedHourIndex = -1;
+  let previewHourIndex: number | null = null;
   const svg = g.node()?.ownerSVGElement;
   const clipId = "weather-germany-clip";
 
@@ -971,10 +982,14 @@ export async function appendWeatherOverlay(
     controls.timeLabel.disabled = false;
     controls.timeLabel.textContent = formatGermanDate(dataset.selectedDate);
     controls.slider.max = `${dataset.hours.length - 1}`;
-    controls.slider.value = `${closestHourIndex(
+    activeDataset = dataset;
+    selectedHourIndex = closestHourIndex(
       dataset.hours,
       selectedDateTargetTime(dataset.selectedDate),
-    )}`;
+    );
+    previewHourIndex = null;
+    renderedHourIndex = -1;
+    controls.slider.value = `${selectedHourIndex}`;
     updateStepMarks(
       controls.stepMarks,
       dataset.hours,
@@ -982,16 +997,89 @@ export async function appendWeatherOverlay(
       controls.timeLabel,
     );
 
-    const getIndex = () => Number(controls.slider.value);
-
-    controls.slider.oninput = () => {
-      renderHour(overlay, dataset, getIndex());
-    };
-
-    renderHour(overlay, dataset, getIndex());
+    renderHour(overlay, dataset, selectedHourIndex);
+    renderedHourIndex = selectedHourIndex;
   };
 
   bindTooltip(layer, overlay);
+
+  const previewHour = (index: number) => {
+    if (!activeDataset || index === renderedHourIndex) {
+      return;
+    }
+
+    previewHourIndex = index;
+    controls.slider.value = `${index}`;
+    renderHour(overlay, activeDataset, index);
+    renderedHourIndex = index;
+  };
+
+  const commitHour = (index: number) => {
+    if (!activeDataset) {
+      return;
+    }
+
+    selectedHourIndex = index;
+    previewHourIndex = null;
+    controls.slider.value = `${index}`;
+    renderHour(overlay, activeDataset, index);
+    renderedHourIndex = index;
+  };
+
+  const restoreSelectedHour = () => {
+    if (!activeDataset || previewHourIndex === null) {
+      return;
+    }
+
+    previewHourIndex = null;
+    controls.slider.value = `${selectedHourIndex}`;
+    renderHour(overlay, activeDataset, selectedHourIndex);
+    renderedHourIndex = selectedHourIndex;
+  };
+
+  const previewFromPointer = (event: MouseEvent) => {
+    if (!activeDataset || controls.slider.disabled) {
+      return;
+    }
+
+    previewHour(
+      hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours),
+    );
+  };
+
+  const restoreWhenPointerLeavesRuler = (event: MouseEvent) => {
+    if (previewHourIndex === null) {
+      return;
+    }
+
+    const rect = controls.sliderWrap.getBoundingClientRect();
+    const isInside =
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom;
+
+    if (!isInside) {
+      restoreSelectedHour();
+    }
+  };
+
+  controls.sliderWrap.addEventListener("mousemove", previewFromPointer);
+  controls.sliderWrap.addEventListener("click", (event) => {
+    if (!activeDataset) {
+      return;
+    }
+
+    commitHour(hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours));
+  });
+  controls.slider.addEventListener("input", () => {
+    previewHour(Number(controls.slider.value));
+  });
+  controls.slider.addEventListener("change", () => {
+    commitHour(Number(controls.slider.value));
+  });
+  controls.sliderWrap.addEventListener("mouseleave", restoreSelectedHour);
+  document.addEventListener("mousemove", restoreWhenPointerLeavesRuler);
 
   const showCalendar = () => {
     renderGermanCalendar(
