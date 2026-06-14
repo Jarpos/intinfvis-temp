@@ -4,6 +4,7 @@ import { COLORS } from "./colors";
 import { appendTrainStrecken, appendTrainStations, connections, stations } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
+import { appendWeatherOverlay } from "./weatherOverlay";
 
 const g = map_svg.append("g");
 
@@ -22,6 +23,9 @@ appendGermany(g)
         d3.select(this).attr("fill", COLORS.MAP.NORMAL);
         tooltip.style("display", "none");
     });
+
+// Hourly historic temperature map
+appendWeatherOverlay(g);
 
 // Train Station Connections
 appendTrainStrecken(g);
