@@ -132,10 +132,10 @@ function injectOverlayStyles() {
 
         .weather-timeline {
             position: fixed;
-            right: 24px;
+            right: calc(20rem + 24px);
             bottom: 18px;
             left: 24px;
-            z-index: 10;
+            z-index: 5;
             display: grid;
             gap: 5px;
             padding: 9px 44px 15px;

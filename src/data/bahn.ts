@@ -1,10 +1,24 @@
 import { COLORS } from "../colors";
 import { projection } from "./geo";
 
-export function appendTrainStrecken(g: d3.Selection<SVGGElement, undefined, null, undefined>) {
-    return g.append("g")
+export type Station = {
+    name: string;
+    coords: number[];
+};
+
+export function appendTrainStrecken(
+    g: d3.Selection<SVGGElement, undefined, null, undefined>,
+    selectedStationNames = new Set(stations.map(station => station.name)),
+) {
+    return g
         .selectAll("line")
-        .data(connections)
+        .data(
+            connections.filter(([from, to]) =>
+                selectedStationNames.has(stations[from].name) &&
+                selectedStationNames.has(stations[to].name),
+            ),
+            d => `${(d as number[])[0]}-${(d as number[])[1]}`,
+        )
         .join("line")
         .attr("x1", d => projection(stations[d[0]].coords as [number, number])![0])
         .attr("y1", d => projection(stations[d[0]].coords as [number, number])![1])
@@ -14,10 +28,13 @@ export function appendTrainStrecken(g: d3.Selection<SVGGElement, undefined, null
         .attr("stroke-width", 2);
 }
 
-export function appendTrainStations(g: d3.Selection<SVGGElement, undefined, null, undefined>) {
-    return g.append("g")
+export function appendTrainStations(
+    g: d3.Selection<SVGGElement, undefined, null, undefined>,
+    visibleStations: Station[] = stations,
+) {
+    return g
         .selectAll("circle")
-        .data(stations)
+        .data(visibleStations, d => (d as Station).name)
         .join("circle")
         .attr("cx", d => projection(d.coords as [number, number])![0])
         .attr("cy", d => projection(d.coords as [number, number])![1])
@@ -26,7 +43,7 @@ export function appendTrainStations(g: d3.Selection<SVGGElement, undefined, null
 }
 
 // Real German stations (lon, lat)
-export const stations = [
+export const stations: Station[] = [
     { name: "Hamburg Hbf", coords: [10.006, 53.552] },
     { name: "Berlin Hbf", coords: [13.369, 52.525] },
     { name: "Hannover Hbf", coords: [9.741, 52.377] },
