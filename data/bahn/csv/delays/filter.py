@@ -12,7 +12,9 @@ df = df.query("is_final == True")
 excluded_stations = pd.read_csv(
     f"{path}/../stations-excluded.csv"
 )["eva"].astype(str)
-df = df[~df["stop_id"].astype(str).isin(excluded_stations)]
+df = df[
+    ~df["stop_id"].astype(str).isin(excluded_stations)
+]
 
 df = df.astype({
     "trip_id": "uint64",
