@@ -8,6 +8,12 @@ path, _ = os.path.split(full_path)
 
 df = pd.read_parquet(f"{path}/../../raw/delays/2021/{date}.parquet")
 df = df.query("is_final == True")
+
+excluded_stations = pd.read_csv(
+    f"{path}/../stations-excluded.csv"
+)["eva"].astype(str)
+df = df[~df["stop_id"].astype(str).isin(excluded_stations)]
+
 df = df.astype({
     "trip_id": "uint64",
     "initial_stop_id": "Int64",
