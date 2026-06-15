@@ -4,6 +4,14 @@ import os
 full_path = os.path.realpath(__file__)
 path, _ = os.path.split(full_path)
 
+def drop_columns(df: pd.DataFrame):
+    return df[[
+        "eva",
+        "name",
+        "lat",
+        "lon",
+    ]]
+
 df = pd.read_csv(f"{path}/stations.csv")
 # print(df.count())
 df = df.query("is_active_ris == True or is_active_iris == True")
@@ -19,9 +27,8 @@ other_rows = df[
     ~df["available_transports"]
         .str.contains(r"\b.*REGIONAL_TRAIN.*\b", case=False, na=False, regex=True)
 ]
-other_rows = other_rows[[
-    "eva"
-]]
+train_rows = drop_columns(train_rows)
+other_rows = other_rows[["eva"]]
 # print(train_rows.count())
 # print(other_rows.count())
 train_rows.to_csv(f"{path}/stations-filtered.csv", index=False)
