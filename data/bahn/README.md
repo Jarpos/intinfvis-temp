@@ -10,3 +10,9 @@ Some lines looked like this:
 had to find/replace with: `\n ` -> ` ` to fix
 
 then ran `python data/bahn/csv/filter.py`
+
+# Ideas for pre-processing
+- Check if station is within Germany (as per GeoJSON)
+- Delays nach "category" filtern
+- Delay Times per Strecke (per Day)
+- Nach Zoom Level & Regierungsbezirk (große Bahnhöfe von weit weg, kleine nur von nah dran)
