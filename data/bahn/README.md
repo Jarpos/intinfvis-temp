@@ -14,5 +14,7 @@ then ran `python data/bahn/csv/filter.py`
 # Ideas for pre-processing
 - Check if station is within Germany (as per GeoJSON)
 - Delays nach "category" filtern
+- Delays pro Strecke(nabschnitt) pro Zeitintervall vorberechnen
+- Connections zwischen den Bahnhofen
 - Delay Times per Strecke (per Day)
 - Nach Zoom Level & Regierungsbezirk (große Bahnhöfe von weit weg, kleine nur von nah dran)
