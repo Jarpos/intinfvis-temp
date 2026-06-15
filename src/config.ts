@@ -10,8 +10,11 @@ export const map_svg = d3.create("svg")
     .attr("width", WIDTH)
     .attr("height", HEIGHT)
     .attr("viewBox", [0, 0, WIDTH, HEIGHT])
+    .style("display", "block")
+    .style("width", "100%")
+    .style("height", "100%")
     .style("max-width", "100%")
-    .style("height", "auto");
+    .style("max-height", "100%");
 
 export const tooltip = d3.create("div")
     .style("position", "absolute")
