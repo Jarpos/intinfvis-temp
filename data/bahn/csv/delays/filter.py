@@ -24,8 +24,10 @@ df = df[[
     # "initial_stop_id",
     "stop_sequence",
     "delay",
+    "category",
+    "operator",
 ]]
-df = df.drop_duplicates()
+# df = df.drop_duplicates()
 # print(df.head(10))
 # df.head(100).to_csv(f"{path}/{date}.csv", index=False)
 df.head(50000).to_csv(f"{path}/{date}.csv", index=False)
