@@ -349,7 +349,7 @@ export async function appendWeatherOverlay(
   let activeRange: WeatherDateRange = {
     from: DEFAULT_DATE_RANGE.from,
     to: DEFAULT_DATE_RANGE.to,
-    selected: DEFAULT_DATE_RANGE.to,
+    selected: DEFAULT_DATE_RANGE.from,
   };
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex = 0;

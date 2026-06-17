@@ -149,7 +149,7 @@ const startOfCurrentHour = () => {
 
 function getWeatherWindow(range: WeatherDateRange) {
   const currentHour = startOfCurrentHour();
-  const selectedDay = startOfDay(range.selected ?? range.to);
+  const selectedDay = startOfDay(range.selected ?? range.from);
   const rangeStart = startOfDay(range.from);
   const rangeEnd = startOfDay(range.to);
   const start = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
