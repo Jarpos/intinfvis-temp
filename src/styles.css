@@ -111,8 +111,8 @@
         left: 24px;
         z-index: 5;
         display: grid;
-        gap: 5px;
-        padding: 9px 44px 15px;
+        gap: 8px;
+        padding: 10px 44px 22px;
         border-radius: 7px;
         color: #f7fbff;
     }
@@ -139,8 +139,8 @@
         display: grid;
         gap: 0;
         min-width: 0;
-        height: 58px;
-        padding-top: 19px;
+        height: 74px;
+        padding-top: 24px;
     }
 
     .weather-slider {
@@ -190,7 +190,7 @@
 
     .weather-step-marks {
         position: relative;
-        height: 34px;
+        height: 46px;
         margin-top: -7px;
         color: rgba(247, 251, 255, 0.86);
         font-size: 11px;
@@ -219,11 +219,12 @@
 
     .weather-day-label {
         position: absolute;
-        top: 25px;
+        top: 31px;
         transform: translateX(-50%);
         display: grid;
         gap: 1px;
         min-width: 78px;
+        max-width: 86px;
         color: #f7fbff;
         font-size: 12px;
         font-weight: 800;
@@ -240,7 +241,7 @@
 
     .weather-time-bubble {
         position: absolute;
-        left: var(--weather-progress, 50%);
+        left: clamp(32px, var(--weather-progress, 50%), calc(100% - 32px));
         top: 0;
         z-index: 5;
         min-width: 52px;
@@ -299,7 +300,7 @@
             left: 10px;
             right: 10px;
             bottom: 10px;
-            padding: 8px 14px 10px;
+            padding: 8px 14px 18px;
         }
 
         .weather-timeline-meta {
@@ -309,6 +310,7 @@
         .weather-day-label {
             font-size: 10px;
             min-width: 62px;
+            max-width: 68px;
         }
 
     }
