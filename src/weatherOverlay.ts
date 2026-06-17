@@ -23,7 +23,6 @@ type WeatherOverlay = {
   status: HTMLDivElement;
   slider: HTMLInputElement;
   sliderWrap: HTMLDivElement;
-  timeLabel: HTMLButtonElement;
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
   currentCells: TemperatureCell[];
@@ -87,12 +86,6 @@ function createTimeline() {
   const utcLabel = document.createElement("div");
   utcLabel.textContent = "UTC+02:00 Europe/Berlin";
 
-  const timeLabel = document.createElement("button");
-  timeLabel.className = "weather-time";
-  timeLabel.type = "button";
-  timeLabel.textContent = formatGermanDate(initialSelectedDate);
-  timeLabel.disabled = true;
-
   const sliderWrap = document.createElement("div");
   sliderWrap.className = "weather-slider-wrap";
 
@@ -123,34 +116,7 @@ function createTimeline() {
   timeline.append(meta, sliderWrap);
   document.body.append(timeline);
 
-  return { status, slider, sliderWrap, timeLabel, stepMarks, timeBubble };
-}
-
-function formatGermanDate(date: Date) {
-  return new Intl.DateTimeFormat("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    timeZone: "Europe/Berlin",
-  }).format(date);
-}
-
-function formatGermanMonth(date: Date) {
-  return new Intl.DateTimeFormat("de-DE", {
-    month: "long",
-    year: "numeric",
-    timeZone: "Europe/Berlin",
-  }).format(date);
-}
-
-function createGermanCalendar() {
-  const calendar = document.createElement("div");
-  calendar.className = "weather-calendar";
-  calendar.hidden = true;
-  calendar.addEventListener("click", (event) => event.stopPropagation());
-  document.body.append(calendar);
-
-  return calendar;
+  return { status, slider, sliderWrap, stepMarks, timeBubble };
 }
 
 function formatDayName(date: Date) {
@@ -218,8 +184,6 @@ function closestIndexForDateLabel(hours: WeatherHour[], date: Date) {
 function updateStepMarks(
   container: HTMLDivElement,
   hours: WeatherHour[],
-  selectedDate: Date,
-  datePicker: HTMLButtonElement,
 ) {
   container.replaceChildren();
 
@@ -246,16 +210,6 @@ function updateStepMarks(
   labelDates.forEach((date) => {
     const index = closestIndexForDateLabel(hours, date);
     const hour = hours[index];
-    const isSelectedDate = sameCalendarDate(date, selectedDate);
-
-    if (isSelectedDate) {
-      const pickerWrap = document.createElement("div");
-      pickerWrap.className = "weather-day-label weather-date-label";
-      pickerWrap.style.left = `${hourPosition(index, hours)}%`;
-      pickerWrap.append(datePicker);
-      container.append(pickerWrap);
-      return;
-    }
 
     const label = document.createElement("div");
     label.className = "weather-day-label";
@@ -275,127 +229,6 @@ function selectedDateTargetTime(selectedDate: Date) {
     0,
     0,
   );
-}
-
-function monthStart(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, months: number) {
-  return new Date(date.getFullYear(), date.getMonth() + months, 1);
-}
-
-function addDays(date: Date, days: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-}
-
-function isBeforeDate(left: Date, right: Date) {
-  return (
-    new Date(left.getFullYear(), left.getMonth(), left.getDate()).getTime() <
-    new Date(right.getFullYear(), right.getMonth(), right.getDate()).getTime()
-  );
-}
-
-function isAfterDate(left: Date, right: Date) {
-  return (
-    new Date(left.getFullYear(), left.getMonth(), left.getDate()).getTime() >
-    new Date(right.getFullYear(), right.getMonth(), right.getDate()).getTime()
-  );
-}
-
-function positionCalendar(calendar: HTMLDivElement, trigger: HTMLElement) {
-  const rect = trigger.getBoundingClientRect();
-  const top = rect.top - calendar.offsetHeight - 10;
-  const left = rect.left + rect.width / 2 - calendar.offsetWidth / 2;
-
-  calendar.style.top = `${Math.max(10, top)}px`;
-  calendar.style.left = `${Math.min(
-    window.innerWidth - calendar.offsetWidth - 10,
-    Math.max(10, left),
-  )}px`;
-}
-
-function renderGermanCalendar(
-  calendar: HTMLDivElement,
-  visibleMonth: Date,
-  selectedDate: Date,
-  onVisibleMonthChange: (date: Date) => void,
-  onDateSelected: (date: Date) => void,
-) {
-  const minDate = new Date(2022, 0, 1);
-  const maxDate = new Date();
-  const start = monthStart(visibleMonth);
-  const mondayOffset = (start.getDay() + 6) % 7;
-  const gridStart = addDays(start, -mondayOffset);
-  const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-
-  calendar.replaceChildren();
-
-  const header = document.createElement("div");
-  header.className = "weather-calendar-header";
-
-  const previous = document.createElement("button");
-  previous.className = "weather-calendar-nav";
-  previous.type = "button";
-  previous.textContent = "‹";
-  previous.disabled = !isAfterDate(start, minDate);
-  previous.addEventListener("click", () => {
-    onVisibleMonthChange(addMonths(visibleMonth, -1));
-  });
-
-  const month = document.createElement("div");
-  month.className = "weather-calendar-month";
-  month.textContent = formatGermanMonth(visibleMonth);
-
-  const next = document.createElement("button");
-  next.className = "weather-calendar-nav";
-  next.type = "button";
-  next.textContent = "›";
-  next.disabled = !isBeforeDate(start, monthStart(maxDate));
-  next.addEventListener("click", () => {
-    onVisibleMonthChange(addMonths(visibleMonth, 1));
-  });
-
-  header.append(previous, month, next);
-
-  const weekdayRow = document.createElement("div");
-  weekdayRow.className = "weather-calendar-weekdays";
-  weekdays.forEach((weekday) => {
-    const label = document.createElement("span");
-    label.textContent = weekday;
-    weekdayRow.append(label);
-  });
-
-  const grid = document.createElement("div");
-  grid.className = "weather-calendar-grid";
-
-  for (let index = 0; index < 42; index += 1) {
-    const date = addDays(gridStart, index);
-    const day = document.createElement("button");
-    day.className = "weather-calendar-day";
-    day.type = "button";
-    day.textContent = `${date.getDate()}`;
-
-    if (date.getMonth() !== visibleMonth.getMonth()) {
-      day.classList.add("is-outside");
-    }
-
-    if (date.getDay() === 0 || date.getDay() === 6) {
-      day.classList.add("is-weekend");
-    }
-
-    if (sameCalendarDate(date, selectedDate)) {
-      day.classList.add("is-selected");
-    }
-
-    day.disabled = isBeforeDate(date, minDate) || isAfterDate(date, maxDate);
-    day.addEventListener("click", () => onDateSelected(noonForDate(date)));
-    grid.append(day);
-  }
-
-  calendar.append(header, weekdayRow, grid);
 }
 
 function closestHourIndex(hours: WeatherHour[], target: Date) {
@@ -488,9 +321,7 @@ export async function appendWeatherOverlay(
   createLegend();
 
   const controls = createTimeline();
-  const calendar = createGermanCalendar();
-  let selectedDate = initialSelectedDate;
-  let visibleCalendarMonth = monthStart(selectedDate);
+  const selectedDate = initialSelectedDate;
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex = 0;
   let renderedHourIndex = -1;
@@ -532,7 +363,6 @@ export async function appendWeatherOverlay(
 
   const loadAndRender = async (selectedDate: Date) => {
     controls.slider.disabled = true;
-    controls.timeLabel.disabled = true;
     controls.status.textContent = "Fetching Open-Meteo";
 
     const dataset = await loadHistoricalTemperatures(selectedDate);
@@ -542,8 +372,6 @@ export async function appendWeatherOverlay(
     }
 
     controls.slider.disabled = false;
-    controls.timeLabel.disabled = false;
-    controls.timeLabel.textContent = formatGermanDate(dataset.selectedDate);
     controls.slider.max = `${dataset.hours.length - 1}`;
     activeDataset = dataset;
     selectedHourIndex = closestHourIndex(
@@ -553,12 +381,7 @@ export async function appendWeatherOverlay(
     previewHourIndex = null;
     renderedHourIndex = -1;
     controls.slider.value = `${selectedHourIndex}`;
-    updateStepMarks(
-      controls.stepMarks,
-      dataset.hours,
-      dataset.selectedDate,
-      controls.timeLabel,
-    );
+    updateStepMarks(controls.stepMarks, dataset.hours);
 
     renderHour(overlay, dataset, selectedHourIndex);
     renderedHourIndex = selectedHourIndex;
@@ -644,53 +467,9 @@ export async function appendWeatherOverlay(
   controls.sliderWrap.addEventListener("mouseleave", restoreSelectedHour);
   document.addEventListener("mousemove", restoreWhenPointerLeavesRuler);
 
-  const showCalendar = () => {
-    renderGermanCalendar(
-      calendar,
-      visibleCalendarMonth,
-      selectedDate,
-      (nextMonth) => {
-        visibleCalendarMonth = nextMonth;
-        showCalendar();
-      },
-      (nextDate) => {
-        calendar.hidden = true;
-        selectedDate = nextDate;
-        visibleCalendarMonth = monthStart(nextDate);
-        loadAndRender(nextDate).catch((error) => {
-          controls.timeLabel.disabled = false;
-          controls.status.textContent =
-            error instanceof Error ? error.message : "Could not load weather";
-        });
-      },
-    );
-    calendar.hidden = false;
-    positionCalendar(calendar, controls.timeLabel);
-  };
-
-  controls.timeLabel.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (calendar.hidden) {
-      showCalendar();
-    } else {
-      calendar.hidden = true;
-    }
-  });
-
-  document.addEventListener("click", () => {
-    calendar.hidden = true;
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      calendar.hidden = true;
-    }
-  });
-
   try {
     await loadAndRender(selectedDate);
   } catch (error) {
-    controls.timeLabel.disabled = false;
     controls.status.textContent =
       error instanceof Error ? error.message : "Could not load weather";
 
