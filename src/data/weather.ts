@@ -4,7 +4,7 @@ import { HEIGHT, WIDTH } from "../config";
 import { geojson, projection } from "./geo";
 
 const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
-const DAYS_AROUND_SELECTED_DATE = 2;
+const DAYS_AROUND_SELECTED_DATE = 7;
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 8;
 const CONTOUR_CELL_SIZE = 16;
