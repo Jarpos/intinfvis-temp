@@ -3,6 +3,11 @@ import * as d3 from "d3";
 import { COLORS } from "./colors";
 import { HEIGHT, WIDTH, tooltip } from "./config";
 import {
+  DEFAULT_DATE_RANGE,
+  SELECTED_DATE_CHANGE_EVENT,
+} from "./dateSync";
+import type { SelectedDateChangeDetail } from "./dateSync";
+import {
   TEMPERATURE_RANGE,
   buildTemperatureCells,
   displayedTemperature,
@@ -14,6 +19,7 @@ import {
 import type {
   TemperatureCell,
   WeatherDataset,
+  WeatherDateRange,
   WeatherHour,
 } from "./data/weather";
 import { geojson, projection } from "./data/geo";
@@ -37,7 +43,6 @@ const formatTime = new Intl.DateTimeFormat("de-DE", {
   minute: "2-digit",
   timeZone: "Europe/Berlin",
 });
-const initialSelectedDate = new Date(2025, 0, 1, 12, 0, 0, 0);
 
 function createLegend() {
   const panel = document.createElement("div");
@@ -181,10 +186,7 @@ function closestIndexForDateLabel(hours: WeatherHour[], date: Date) {
   ).index;
 }
 
-function updateStepMarks(
-  container: HTMLDivElement,
-  hours: WeatherHour[],
-) {
+function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
   container.replaceChildren();
 
   hours.forEach((hour, index) => {
@@ -241,9 +243,16 @@ function closestHourIndex(hours: WeatherHour[], target: Date) {
   ).index;
 }
 
-function hourIndexFromPointer(event: MouseEvent, element: HTMLElement, hours: WeatherHour[]) {
+function hourIndexFromPointer(
+  event: MouseEvent,
+  element: HTMLElement,
+  hours: WeatherHour[],
+) {
   const rect = element.getBoundingClientRect();
-  const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+  const ratio = Math.min(
+    1,
+    Math.max(0, (event.clientX - rect.left) / rect.width),
+  );
   return Math.round(ratio * (hours.length - 1));
 }
 
@@ -285,6 +294,22 @@ function renderHour(
   overlay.status.textContent = `${formatTime.format(hour.time).replace(",", "")} · ${dataset.points.length} samples`;
 }
 
+function dispatchSelectedDateChange(
+  range: WeatherDateRange,
+  selectedDate: Date,
+) {
+  document.dispatchEvent(
+    new CustomEvent<SelectedDateChangeDetail>(SELECTED_DATE_CHANGE_EVENT, {
+      detail: {
+        from: toDateInputValue(range.from),
+        to: toDateInputValue(range.to),
+        selected: toDateInputValue(selectedDate),
+        source: "weather-timeline",
+      },
+    }),
+  );
+}
+
 function bindTooltip(
   layer: d3.Selection<SVGGElement, undefined, null, undefined>,
   overlay: WeatherOverlay,
@@ -321,11 +346,16 @@ export async function appendWeatherOverlay(
   createLegend();
 
   const controls = createTimeline();
-  const selectedDate = initialSelectedDate;
+  let activeRange: WeatherDateRange = {
+    from: DEFAULT_DATE_RANGE.from,
+    to: DEFAULT_DATE_RANGE.to,
+    selected: DEFAULT_DATE_RANGE.to,
+  };
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex = 0;
   let renderedHourIndex = -1;
   let previewHourIndex: number | null = null;
+  let loadRequestId = 0;
   const svg = g.node()?.ownerSVGElement;
   const clipId = "weather-germany-clip";
 
@@ -361,11 +391,29 @@ export async function appendWeatherOverlay(
     .attr("stroke-width", 0.8)
     .attr("pointer-events", "none");
 
-  const loadAndRender = async (selectedDate: Date) => {
+  const showWeatherError = (error: unknown) => {
+    controls.status.textContent =
+      error instanceof Error ? error.message : "Could not load weather";
+
+    layer
+      .append("rect")
+      .attr("x", 0)
+      .attr("y", 0)
+      .attr("width", WIDTH)
+      .attr("height", HEIGHT)
+      .attr("fill", "rgba(15, 25, 21, 0.18)");
+  };
+
+  const loadAndRender = async (range: WeatherDateRange) => {
+    const requestId = (loadRequestId += 1);
     controls.slider.disabled = true;
     controls.status.textContent = "Fetching Open-Meteo";
 
-    const dataset = await loadHistoricalTemperatures(selectedDate);
+    const dataset = await loadHistoricalTemperatures(range);
+
+    if (requestId !== loadRequestId) {
+      return;
+    }
 
     if (dataset.hours.length === 0) {
       throw new Error("No historic hourly temperatures returned");
@@ -405,11 +453,20 @@ export async function appendWeatherOverlay(
       return;
     }
 
+    const hour = activeDataset.hours[index];
+    const selectedDayChanged =
+      !activeRange.selected ||
+      !sameCalendarDate(activeRange.selected, hour.time);
     selectedHourIndex = index;
+    activeRange = { ...activeRange, selected: hour.time };
     previewHourIndex = null;
     controls.slider.value = `${index}`;
     renderHour(overlay, activeDataset, index);
     renderedHourIndex = index;
+
+    if (selectedDayChanged) {
+      dispatchSelectedDateChange(activeRange, hour.time);
+    }
   };
 
   const restoreSelectedHour = () => {
@@ -456,7 +513,9 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    commitHour(hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours));
+    commitHour(
+      hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours),
+    );
   });
   controls.slider.addEventListener("input", () => {
     previewHour(Number(controls.slider.value));
@@ -466,19 +525,43 @@ export async function appendWeatherOverlay(
   });
   controls.sliderWrap.addEventListener("mouseleave", restoreSelectedHour);
   document.addEventListener("mousemove", restoreWhenPointerLeavesRuler);
+  document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
+    const { from, to, selected, source } = (
+      event as CustomEvent<SelectedDateChangeDetail>
+    ).detail;
+
+    if (source === "weather-timeline") {
+      return;
+    }
+
+    const nextRange = {
+      from: new Date(`${from}T00:00:00`),
+      to: new Date(`${to}T00:00:00`),
+      selected: new Date(`${selected}T12:00:00`),
+    };
+
+    if (
+      Number.isNaN(nextRange.from.getTime()) ||
+      Number.isNaN(nextRange.to.getTime()) ||
+      Number.isNaN(nextRange.selected.getTime())
+    ) {
+      return;
+    }
+
+    activeRange = nextRange;
+    void loadAndRender(nextRange).catch((error) => {
+      if (
+        sameCalendarDate(activeRange.from, nextRange.from) &&
+        sameCalendarDate(activeRange.to, nextRange.to)
+      ) {
+        showWeatherError(error);
+      }
+    });
+  }) as EventListener);
 
   try {
-    await loadAndRender(selectedDate);
+    await loadAndRender(activeRange);
   } catch (error) {
-    controls.status.textContent =
-      error instanceof Error ? error.message : "Could not load weather";
-
-    layer
-      .append("rect")
-      .attr("x", 0)
-      .attr("y", 0)
-      .attr("width", WIDTH)
-      .attr("height", HEIGHT)
-      .attr("fill", "rgba(15, 25, 21, 0.18)");
+    showWeatherError(error);
   }
 }

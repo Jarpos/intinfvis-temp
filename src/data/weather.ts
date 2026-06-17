@@ -4,7 +4,6 @@ import { HEIGHT, WIDTH } from "../config";
 import { geojson, projection } from "./geo";
 
 const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
-const DAYS_AROUND_SELECTED_DATE = 7;
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 8;
 const CONTOUR_CELL_SIZE = 16;
@@ -24,7 +23,15 @@ export type WeatherHour = {
 export type WeatherDataset = {
   points: WeatherPoint[];
   hours: WeatherHour[];
+  fromDate: Date;
+  toDate: Date;
   selectedDate: Date;
+};
+
+export type WeatherDateRange = {
+  from: Date;
+  to: Date;
+  selected?: Date;
 };
 
 export type TemperatureCell = {
@@ -134,32 +141,26 @@ const endOfDay = (date: Date) => {
   return end;
 };
 
-const addDays = (date: Date, days: number) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-};
-
 const startOfCurrentHour = () => {
   const date = new Date();
   date.setMinutes(0, 0, 0);
   return date;
 };
 
-function getWeatherWindow(selectedDate: Date) {
+function getWeatherWindow(range: WeatherDateRange) {
   const currentHour = startOfCurrentHour();
-  const selectedDay = startOfDay(selectedDate);
-  const start = startOfDay(addDays(selectedDay, -DAYS_AROUND_SELECTED_DATE));
-  const requestedEnd = endOfDay(
-    addDays(selectedDay, DAYS_AROUND_SELECTED_DATE),
-  );
+  const selectedDay = startOfDay(range.selected ?? range.to);
+  const rangeStart = startOfDay(range.from);
+  const rangeEnd = startOfDay(range.to);
+  const start = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+  const requestedEnd = endOfDay(rangeStart <= rangeEnd ? rangeEnd : rangeStart);
   const end = requestedEnd > currentHour ? currentHour : requestedEnd;
 
   return { start, end, selectedDay };
 }
 
-function buildWeatherUrl(points: WeatherPoint[], selectedDate: Date) {
-  const { start, end } = getWeatherWindow(selectedDate);
+function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
+  const { start, end } = getWeatherWindow(range);
 
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
@@ -188,11 +189,11 @@ const normalizeResponses = (
 ) => (Array.isArray(data) ? data : [data]);
 
 export async function loadHistoricalTemperatures(
-  selectedDate = new Date(),
+  range: WeatherDateRange = { from: new Date(), to: new Date() },
 ): Promise<WeatherDataset> {
   const points = buildWeatherGrid();
-  const { start, end, selectedDay } = getWeatherWindow(selectedDate);
-  const response = await fetch(buildWeatherUrl(points, selectedDay));
+  const { start, end, selectedDay } = getWeatherWindow(range);
+  const response = await fetch(buildWeatherUrl(points, range));
 
   if (!response.ok) {
     throw new Error(`Open-Meteo returned ${response.status}`);
@@ -228,7 +229,13 @@ export async function loadHistoricalTemperatures(
         hour.values.some(Number.isFinite),
     );
 
-  return { points, hours, selectedDate: selectedDay };
+  return {
+    points,
+    hours,
+    fromDate: start,
+    toDate: end,
+    selectedDate: selectedDay,
+  };
 }
 
 function interpolateTemperature(

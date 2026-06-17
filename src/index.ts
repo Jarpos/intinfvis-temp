@@ -7,6 +7,11 @@ import { appendTrainStrecken, appendTrainStations, stations } from "./data/bahn"
 import { appendGermany } from "./data/geo";
 import { map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
+import {
+    DEFAULT_DATE_RANGE,
+    SELECTED_DATE_CHANGE_EVENT,
+} from "./dateSync";
+import type { SelectedDateChangeDetail } from "./dateSync";
 
 const g = map_svg.append("g");
 const selectedStationNames = new Set(stations.map(station => station.name));
@@ -166,7 +171,7 @@ function addMonths(date: Date, offset: number) {
     return new Date(date.getFullYear(), date.getMonth() + offset, 1);
 }
 
-function setupTimeRangePicker() {
+function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     const fromInput = getRequiredElement<HTMLInputElement>("#from-date");
     const toInput = getRequiredElement<HTMLInputElement>("#to-date");
     const monthLabel = getRequiredElement<HTMLParagraphElement>("#calendar-month");
@@ -175,17 +180,39 @@ function setupTimeRangePicker() {
     const nextMonthButton = getRequiredElement<HTMLButtonElement>("#next-month");
 
     const today = startOfDay(new Date());
-    const initialFromDate = new Date(today);
-    initialFromDate.setDate(today.getDate() - 7);
+    const initialFromDate = startOfDay(initialRange.from);
+    const initialToDate = startOfDay(initialRange.to);
 
     let fromDate = initialFromDate;
-    let toDate = today;
+    let toDate = initialToDate;
     let activeBoundary: "from" | "to" = "from";
     let displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
 
     function syncInputs() {
         fromInput.value = formatDateInputValue(fromDate);
         toInput.value = formatDateInputValue(toDate);
+    }
+
+    function notifySelectedDateChange(selectedDate: Date) {
+        document.dispatchEvent(
+            new CustomEvent<SelectedDateChangeDetail>(SELECTED_DATE_CHANGE_EVENT, {
+                detail: {
+                    from: formatDateInputValue(fromDate),
+                    to: formatDateInputValue(toDate),
+                    selected: formatDateInputValue(selectedDate),
+                    source: "time-range",
+                },
+            }),
+        );
+    }
+
+    function setDateRange(nextFromDate: Date, nextToDate: Date) {
+        fromDate = startOfDay(nextFromDate);
+        toDate = startOfDay(nextToDate);
+        displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
+        activeBoundary = "to";
+        syncInputs();
+        renderCalendar();
     }
 
     function updateFromInput(value: string) {
@@ -204,6 +231,7 @@ function setupTimeRangePicker() {
         displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
         syncInputs();
         renderCalendar();
+        notifySelectedDateChange(fromDate);
     }
 
     function updateToInput(value: string) {
@@ -222,6 +250,7 @@ function setupTimeRangePicker() {
         displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
         syncInputs();
         renderCalendar();
+        notifySelectedDateChange(toDate);
     }
 
     function renderCalendar() {
@@ -271,6 +300,7 @@ function setupTimeRangePicker() {
                     }
 
                     activeBoundary = "to";
+                    notifySelectedDateChange(fromDate);
                 } else {
                     toDate = date;
 
@@ -279,6 +309,7 @@ function setupTimeRangePicker() {
                     }
 
                     activeBoundary = "from";
+                    notifySelectedDateChange(toDate);
                 }
 
                 syncInputs();
@@ -305,6 +336,20 @@ function setupTimeRangePicker() {
         displayedMonth = addMonths(displayedMonth, 1);
         renderCalendar();
     });
+    document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
+        const { from, to, source } = (event as CustomEvent<SelectedDateChangeDetail>).detail;
+
+        if (source === "time-range") {
+            return;
+        }
+
+        const nextFromDate = parseDateInputValue(from);
+        const nextToDate = parseDateInputValue(to);
+
+        if (nextFromDate && nextToDate) {
+            setDateRange(nextFromDate, nextToDate);
+        }
+    }) as EventListener);
 
     syncInputs();
     renderCalendar();
@@ -318,7 +363,7 @@ const zoom = d3
     .on("zoom", (event) => g.attr("transform", event.transform));
 map_svg.call(zoom);
 setupStationFilterPanel();
-setupTimeRangePicker();
+setupTimeRangePicker(DEFAULT_DATE_RANGE);
 
 const mapPanel = getRequiredElement<HTMLElement>("#map-panel");
 mapPanel.append(map_svg.node()!);
