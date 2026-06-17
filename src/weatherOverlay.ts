@@ -38,6 +38,7 @@ const formatTime = new Intl.DateTimeFormat("de-DE", {
   minute: "2-digit",
   timeZone: "Europe/Berlin",
 });
+const initialSelectedDate = new Date(2025, 0, 1, 12, 0, 0, 0);
 
 function createLegend() {
   const panel = document.createElement("div");
@@ -89,7 +90,7 @@ function createTimeline() {
   const timeLabel = document.createElement("button");
   timeLabel.className = "weather-time";
   timeLabel.type = "button";
-  timeLabel.textContent = formatGermanDate(new Date());
+  timeLabel.textContent = formatGermanDate(initialSelectedDate);
   timeLabel.disabled = true;
 
   const sliderWrap = document.createElement("div");
@@ -488,7 +489,7 @@ export async function appendWeatherOverlay(
 
   const controls = createTimeline();
   const calendar = createGermanCalendar();
-  let selectedDate = noonForDate(new Date());
+  let selectedDate = initialSelectedDate;
   let visibleCalendarMonth = monthStart(selectedDate);
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex = 0;
