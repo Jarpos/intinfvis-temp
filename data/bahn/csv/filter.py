@@ -40,26 +40,31 @@ def split_by_geojson(
     return df[mask], df[~mask]
 
 
-all = pd.read_parquet(f"{path}/../raw/stations.parquet")
+all = pd.read_parquet(f"{path}/../../../raw/stations.parquet")
 all = all.query("is_active_ris == True and is_active_iris == True")
 
 german_stations, outside_german_stations = split_by_geojson(
     all, f"{path}/../../geo/1_sehr_hoch.geo.json",
 )
 
-exclude_trains_not_regional = all[
-    ~all["available_transports"]
+stations_regional = german_stations[
+    german_stations["available_transports"]
         .str.contains(r"\b.*REGIONAL_TRAIN.*\b", case=False, na=False, regex=True)
 ]
 
-exclude_trains_intercity = all[
-    ~all["available_transports"]
+stations_intercity = german_stations[
+    german_stations["available_transports"]
         .str.contains(r"\b.*INTERCITY_TRAIN.*\b", case=False, na=False, regex=True)
 ]
 
 stations = drop_columns(german_stations)
-excluded_stations = outside_german_stations[["eva"]]
+excluded_stations = pd.concat([
+    outside_german_stations[["eva"]],
+    german_stations.loc[~german_stations.index.isin(stations_regional.index), ["eva"]],
+    german_stations.loc[~german_stations.index.isin(stations_intercity.index), ["eva"]],
+]).drop_duplicates()
 
 stations.to_csv(f"{path}/stations-filtered.csv", index=False)
 excluded_stations.to_csv(f"{path}/stations-excluded.csv", index=False)
+all.to_csv(f"{path}/all_stations.csv", index=False)
 # all.head(100).to_csv(f"{path}/stations.csv", index=False)
