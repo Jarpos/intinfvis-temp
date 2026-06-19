@@ -32,4 +32,4 @@ df = df[[
 # df = df.drop_duplicates()
 # print(df.head(10))
 # df.head(100).to_csv(f"{path}/{date}.csv", index=False)
-df.head(50000).to_csv(f"{path}/{date}.csv", index=False)
+df.head(10000).to_csv(f"{path}/{date}.csv", index=False)
