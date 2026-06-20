@@ -13,6 +13,7 @@ def drop_columns(df: pd.DataFrame):
         "name",
         "lat",
         "lon",
+        "region_name",
     ]]
 
 def split_by_geojson(
@@ -24,21 +25,28 @@ def split_by_geojson(
     with open(geojson_path) as f:
         geojson = json.load(f)
 
-    geometries = [
-        prep(shape(feature["geometry"]))
-        for feature in geojson["features"]
-    ]
+    geometries = []
+    names = []
 
-    mask = df.apply(
-        lambda row: any(
-            geometry.contains(Point(row[lon_column], row[lat_column]))
-            for geometry in geometries
-        ),
-        axis=1,
-    )
+    for feature in geojson["features"]:
+        geometries.append(prep(shape(feature["geometry"])))
+        props = feature.get("properties", {})
+        names.append((props.get("NAME_1"), props.get("NAME_2")))
+
+    def match_region(row):
+        point = Point(row[lon_column], row[lat_column])
+
+        for geom, (name1, name2) in zip(geometries, names):
+            if geom.contains(point):
+                return f"{name2}" if name2 else None
+        return None
+
+    df = df.copy()
+    df["region_name"] = df.apply(match_region, axis=1)
+
+    mask = df["region_name"].notna()
 
     return df[mask], df[~mask]
-
 
 all = pd.read_parquet(f"{path}/../../../raw/stations.parquet")
 all = all.query("is_active_ris == True and is_active_iris == True")
@@ -93,12 +101,6 @@ stations_train = drop_columns(
             )
     ]
 )
-
-# print(len(german_stations))
-# print(len(stations_regional))
-# print(len(stations_intercity))
-# print(len(excluded_stations))
-# print(len(stations))
 
 stations_ic.to_csv(f"{path}/stations-ic.csv", index=False)
 stations_train.to_csv(f"{path}/stations-train.csv", index=False)

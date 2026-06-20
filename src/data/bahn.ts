@@ -13,7 +13,7 @@ export function appendTrainStrecken(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
   selectedStationNames = new Set(stations.map((station) => station.name)),
 ) {
-  const stationByEva = new Map(stations.map((s) => [String(s.eva), s]));
+  const stationByEva = new Map(stations.map((s) => [s.eva, s]));
   const connections = trips.map(t => ({
     source: stationByEva.get(t.from_stop_id),
     target: stationByEva.get(t.to_stop_id),
@@ -70,9 +70,10 @@ export function appendTrainStations(
 
 export async function loadStations() {
   // TODO: Pull out link root into global scope
-  const stations = await d3.csv("/data/bahn/csv/stations-filtered.csv", (d) => ({
+  const stations = await d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
     name: d.name,
     eva: +d.eva,
+    region: d.region_name,
     coords: [
       +d.lon, // longitude first
       +d.lat, // latitude second
@@ -87,8 +88,8 @@ export const stations = await loadStations();
 export const connections = [];
 export const trips = await d3
   // TODO: Pull out link root into global scope
-  .csv("/data/bahn/csv/delays/2023-01-30.csv", (d) => ({
-    from_stop_id: d.from_stop_id,
-    to_stop_id: d.to_stop_id,
+  .csv("/data/bahn/csv/delays/ic/2023-01-30.csv", (d) => ({
+    from_stop_id: +d.from_stop_id,
+    to_stop_id: +d.to_stop_id,
     avg_delay: +d.avg_delay,
   }));
