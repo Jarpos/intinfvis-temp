@@ -49,20 +49,43 @@ german_stations, outside_german_stations = split_by_geojson(
 
 stations_regional = german_stations[
     german_stations["available_transports"]
-        .str.contains(r"\b.*REGIONAL_TRAIN.*\b", case=False, na=False, regex=True)
+        .astype(str)
+        .str.contains("REGIONAL_TRAIN", case=False, na=False)
 ]
 
 stations_intercity = german_stations[
     german_stations["available_transports"]
-        .str.contains(r"\b.*INTERCITY_TRAIN.*\b", case=False, na=False, regex=True)
+        .astype(str)
+        .str.contains("INTERCITY_TRAIN", case=False, na=False)
 ]
 
-stations = drop_columns(german_stations)
 excluded_stations = pd.concat([
     outside_german_stations[["eva"]],
-    german_stations.loc[~german_stations.index.isin(stations_regional.index), ["eva"]],
-    german_stations.loc[~german_stations.index.isin(stations_intercity.index), ["eva"]],
+    german_stations.loc[
+        ~german_stations.index.isin(stations_regional.index)
+        & ~german_stations.index.isin(stations_intercity.index),
+        ["eva"],
+    ],
 ]).drop_duplicates()
+
+stations = drop_columns(
+    german_stations[
+        german_stations["available_transports"]
+            .astype(str)
+            .str.contains(
+                "REGIONAL_TRAIN|INTERCITY_TRAIN",
+                case=False,
+                na=False,
+                regex=True,
+            )
+    ]
+)
+
+# print(len(german_stations))
+# print(len(stations_regional))
+# print(len(stations_intercity))
+# print(len(excluded_stations))
+# print(len(stations))
 
 stations.to_csv(f"{path}/stations-filtered.csv", index=False)
 excluded_stations.to_csv(f"{path}/stations-excluded.csv", index=False)
