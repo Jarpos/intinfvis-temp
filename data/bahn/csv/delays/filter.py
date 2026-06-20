@@ -16,8 +16,8 @@ TRAIN_CATEGORIES = {
 full_path = os.path.realpath(__file__)
 path, _ = os.path.split(full_path)
 
-stations = set(pd.read_csv(
-    f"{path}/../stations-filtered.csv"
+ic_stations = set(pd.read_csv(
+    f"{path}/../stations-ic.csv"
 )["eva"].astype(int))
 
 def convert_date(date: str):
@@ -26,7 +26,7 @@ def convert_date(date: str):
     # df.head(500).to_csv(f"{path}/{date}.csv")
 
     delays = delays[delays["category"].isin(TRAIN_CATEGORIES)]
-    delays = delays[delays["stop_id"].astype(int).isin(stations)]
+    delays = delays[delays["stop_id"].astype(int).isin(ic_stations)]
 
     delays = delays.astype({
         "trip_id": "uint64",
@@ -73,7 +73,7 @@ def convert_date(date: str):
     # print(df.head(10))
     # df.head(100).to_csv(f"{path}/{date}.csv", index=False)
     # delays.to_csv(f"{path}/{date}.csv", index=False)
-    sections.to_csv(f"{path}/{date}.csv", index=False)
+    sections.to_csv(f"{path}/ic/{date}.csv", index=False)
 
 for date in dates:
     convert_date(date)

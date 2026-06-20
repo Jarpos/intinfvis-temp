@@ -68,7 +68,20 @@ excluded_stations = pd.concat([
     ],
 ]).drop_duplicates()
 
-stations = drop_columns(
+stations_ic = drop_columns(
+    german_stations[
+        german_stations["available_transports"]
+            .astype(str)
+            .str.contains(
+                "INTERCITY_TRAIN",
+                case=False,
+                na=False,
+                regex=True,
+            )
+    ]
+)
+
+stations_train = drop_columns(
     german_stations[
         german_stations["available_transports"]
             .astype(str)
@@ -87,7 +100,8 @@ stations = drop_columns(
 # print(len(excluded_stations))
 # print(len(stations))
 
-stations.to_csv(f"{path}/stations-filtered.csv", index=False)
-excluded_stations.to_csv(f"{path}/stations-excluded.csv", index=False)
+stations_ic.to_csv(f"{path}/stations-ic.csv", index=False)
+stations_train.to_csv(f"{path}/stations-train.csv", index=False)
+# excluded_stations.to_csv(f"{path}/stations-excluded.csv", index=False)
 all.to_csv(f"{path}/all_stations.csv", index=False)
 # all.head(100).to_csv(f"{path}/stations.csv", index=False)
