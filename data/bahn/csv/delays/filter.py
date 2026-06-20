@@ -130,3 +130,5 @@ def convert_date(date: str):
 
 for date in dates:
     convert_date(date)
+
+pd.Series(dates).to_json(f"{path}/dates.json", orient="values", indent=2)
