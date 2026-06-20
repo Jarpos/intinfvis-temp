@@ -11,7 +11,7 @@ import * as config from "../config";
 // https://github.com/leakyMirror/map-of-europe/tree/master
 
 // TODO: Pull out link root into global scope
-export const geojson = await d3.json("/data/geo/1_sehr_hoch.geo.json") as GeoJSON.FeatureCollection;
+export const geojson = await d3.json("/data/geo/3_mittel.geo.json") as GeoJSON.FeatureCollection;
 // export const geojson = await d3.json("/data/geo/europe.geo.json") as GeoJSON.FeatureCollection;
 
 export const projection = d3.geoMercator()
