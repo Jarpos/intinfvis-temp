@@ -14,16 +14,11 @@ export function appendTrainStrecken(
   selectedStationNames = new Set(stations.map((station) => station.name)),
 ) {
   const stationByEva = new Map(stations.map((s) => [String(s.eva), s]));
-  const connections = trips.flatMap((trip) =>
-    trip.stops
-      .slice(0, -1)
-      .map((stop, i) => ({
-        source: stationByEva.get(String(stop.stop_id)),
-        target: stationByEva.get(String(trip.stops[i + 1].stop_id)),
-        delay: trip.stops[i + 1].delay,
-      }))
-      .filter((d) => d.source && d.target),
-  );
+  const connections = trips.map(t => ({
+    source: stationByEva.get(t.from_stop_id),
+    target: stationByEva.get(t.to_stop_id),
+    delay: t.avg_delay,
+  }))
 
   return (
     g
@@ -74,7 +69,8 @@ export function appendTrainStations(
 }
 
 export async function loadStations() {
-  const stations = await d3.csv("/data/bahn/csv/stations.csv", (d) => ({
+  // TODO: Pull out link root into global scope
+  const stations = await d3.csv("/data/bahn/csv/stations-filtered.csv", (d) => ({
     name: d.name,
     eva: +d.eva,
     coords: [
@@ -90,23 +86,9 @@ export const stations = await loadStations();
 
 export const connections = [];
 export const trips = await d3
-  .csv("/data/bahn/csv/delays/2021-09-08.csv", (d) => ({
-    trip_id: d.trip_id,
-    stop_id: d.stop_id,
-    stop_sequence: +d.stop_sequence,
-    delay: +d.delay,
-  }))
-  .then((data) => {
-    const trips = d3.group(data, (d) => d.trip_id);
-    const tripList = Array.from(trips, ([trip_id, stops]) => ({
-      trip_id,
-      stops: stops
-        .sort((a, b) => a.stop_sequence - b.stop_sequence)
-        .map((d) => ({
-          stop_id: +d.stop_id,
-          stop_sequence: d.stop_sequence,
-          delay: d.delay,
-        })),
-    }));
-    return tripList;
-  });
+  // TODO: Pull out link root into global scope
+  .csv("/data/bahn/csv/delays/2023-01-30.csv", (d) => ({
+    from_stop_id: d.from_stop_id,
+    to_stop_id: d.to_stop_id,
+    avg_delay: +d.avg_delay,
+  }));
