@@ -17,7 +17,9 @@ export type WeatherPoint = {
 export type WeatherHour = {
   time: Date;
   label: string;
-  values: number[];
+  temperature_2m: number[];
+  precipitation: number[];
+  snow_depth: number[];
 };
 
 export type WeatherDataset = {
@@ -39,9 +41,51 @@ export type TemperatureCell = {
   y: number;
   size: number;
   temperature: number;
+  rawValue: number;
 };
 
 export const TEMPERATURE_RANGE = [-40, 50] as const;
+
+export interface WeatherVariableConfig {
+  key: "temperature_2m" | "precipitation" | "snow_depth";
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+  ticks: number[];
+}
+
+export const WEATHER_VARIABLES: Record<"temperature_2m" | "precipitation" | "snow_depth", WeatherVariableConfig> = {
+  temperature_2m: {
+    key: "temperature_2m",
+    label: "Temperature",
+    unit: "°C",
+    min: -40,
+    max: 50,
+    ticks: [50, 40, 30, 20, 10, 0, -10, -20, -30, -40],
+  },
+  precipitation: {
+    key: "precipitation",
+    label: "Precipitation",
+    unit: "mm",
+    min: 0,
+    max: 10,
+    ticks: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+  },
+  snow_depth: {
+    key: "snow_depth",
+    label: "Snow Depth",
+    unit: "m",
+    min: 0,
+    max: 1,
+    ticks: [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0],
+  },
+};
+
+export function mapValueToRamp(value: number, config: WeatherVariableConfig): number {
+  const clamped = Math.max(config.min, Math.min(config.max, value));
+  return -40 + ((clamped - config.min) / (config.max - config.min)) * 90;
+}
 
 const temperatureRamp = d3
   .scaleLinear<string>()
@@ -265,7 +309,7 @@ function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
     longitude: points.map((point) => point.longitude.toFixed(4)).join(","),
-    hourly: "temperature_2m",
+    hourly: "temperature_2m,precipitation,snow_depth",
     temperature_unit: "celsius",
     timezone: "Europe/Berlin",
     start_date: toDateInputValue(start),
@@ -280,6 +324,8 @@ type OpenMeteoLocationResponse = {
   hourly?: {
     time?: string[];
     temperature_2m?: Array<number | null>;
+    precipitation?: Array<number | null>;
+    snow_depth?: Array<number | null>;
   };
   reason?: string;
 };
@@ -315,18 +361,28 @@ export async function loadHistoricalTemperatures(
   const hours = timeline
     .map((label, timeIndex) => {
       const time = new Date(label);
-      const values = locations.map(
+      const temperature_2m = locations.map(
         (location) =>
           location.hourly?.temperature_2m?.[timeIndex] ?? Number.NaN,
       );
-      return { time, label, values };
+      const precipitation = locations.map(
+        (location) =>
+          location.hourly?.precipitation?.[timeIndex] ?? Number.NaN,
+      );
+      const snow_depth = locations.map(
+        (location) =>
+          location.hourly?.snow_depth?.[timeIndex] ?? Number.NaN,
+      );
+      return { time, label, temperature_2m, precipitation, snow_depth };
     })
     .filter(
       (hour) =>
         hour.time >= start &&
         hour.time <= end &&
         hour.time <= currentHour &&
-        hour.values.some(Number.isFinite),
+        (hour.temperature_2m.some(Number.isFinite) ||
+          hour.precipitation.some(Number.isFinite) ||
+          hour.snow_depth.some(Number.isFinite)),
     );
 
   return {
@@ -385,7 +441,7 @@ export function buildTemperatureContours(
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      values.push(interpolateTemperature(x, y, projectedPoints, hour.values));
+      values.push(interpolateTemperature(x, y, projectedPoints, hour.temperature_2m));
     }
   }
 
@@ -406,6 +462,7 @@ export function buildTemperatureContours(
 export function buildTemperatureCells(
   dataset: WeatherDataset,
   hour: WeatherHour,
+  variableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m",
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
@@ -414,19 +471,23 @@ export function buildTemperatureCells(
     .filter((point): point is [number, number] => point !== null);
   const cells: TemperatureCell[] = [];
 
+  const rawValues = hour[variableKey];
+  const config = WEATHER_VARIABLES[variableKey];
+
   for (let row = 0; row < gridHeight; row += 1) {
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      const temperature = interpolateTemperature(
+      const rawValue = interpolateTemperature(
         x + CONTOUR_CELL_SIZE / 2,
         y + CONTOUR_CELL_SIZE / 2,
         projectedPoints,
-        hour.values,
+        rawValues,
       );
 
-      if (Number.isFinite(temperature)) {
-        cells.push({ x, y, size: CONTOUR_CELL_SIZE, temperature });
+      if (Number.isFinite(rawValue)) {
+        const temperature = mapValueToRamp(rawValue, config);
+        cells.push({ x, y, size: CONTOUR_CELL_SIZE, temperature, rawValue });
       }
     }
   }

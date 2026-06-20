@@ -6,6 +6,7 @@ import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
 import type { SelectedDateChangeDetail } from "./dateSync";
 import {
   TEMPERATURE_RANGE,
+  WEATHER_VARIABLES,
   buildTemperatureCells,
   displayedTemperature,
   loadHistoricalTemperatures,
@@ -18,6 +19,7 @@ import type {
   WeatherDataset,
   WeatherDateRange,
   WeatherHour,
+  WeatherVariableConfig,
 } from "./data/weather";
 import { geojson, projection } from "./data/geo";
 
@@ -49,33 +51,96 @@ function createLegend() {
   model.className = "weather-chip";
   model.innerHTML = "<span>DWD ICON-D2</span><span>historic</span>";
 
-  const variable = document.createElement("div");
-  variable.className = "weather-chip";
-  variable.innerHTML = "<span>Temperature</span><span>2 m</span>";
+  const dropdownContainer = document.createElement("div");
+  dropdownContainer.className = "weather-dropdown-container";
+  
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "weather-dropdown-trigger";
+  trigger.textContent = "Temperature";
+  
+  const menu = document.createElement("ul");
+  menu.className = "weather-dropdown-menu";
+  
+  const options = [
+    { value: "temperature_2m", label: "Temperature" },
+    { value: "precipitation", label: "Precipitation" },
+    { value: "snow_depth", label: "Snow Depth" },
+  ];
+  options.forEach((opt) => {
+    const item = document.createElement("li");
+    item.className = "weather-dropdown-item";
+    item.textContent = opt.label;
+    item.setAttribute("data-value", opt.value);
+    if (opt.value === "temperature_2m") {
+      item.classList.add("is-selected");
+    }
+    menu.append(item);
+  });
+  
+  dropdownContainer.append(trigger, menu);
 
   const legend = document.createElement("div");
   legend.className = "weather-legend";
-  legend.innerHTML = `
-        <div class="weather-legend-title">°C</div>
-        <div class="weather-legend-scale">
-            <div class="weather-gradient"></div>
-            <div class="weather-ticks">
-                <span>50</span>
-                <span>40</span>
-                <span>30</span>
-                <span>20</span>
-                <span>10</span>
-                <span>0</span>
-                <span>-10</span>
-                <span>-20</span>
-                <span>-30</span>
-                <span>-40</span>
-            </div>
-        </div>
-    `;
+  
+  const legendTitle = document.createElement("div");
+  legendTitle.className = "weather-legend-title";
 
-  panel.append(model, variable, legend);
+  const scale = document.createElement("div");
+  scale.className = "weather-legend-scale";
+
+  const gradient = document.createElement("div");
+  gradient.className = "weather-gradient";
+
+  const legendTicks = document.createElement("div");
+  legendTicks.className = "weather-ticks";
+
+  scale.append(gradient, legendTicks);
+  legend.append(legendTitle, scale);
+  panel.append(model, dropdownContainer, legend);
   document.body.append(panel);
+
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    dropdownContainer.classList.toggle("is-open");
+  });
+
+  document.addEventListener("click", () => {
+    dropdownContainer.classList.remove("is-open");
+  });
+
+  menu.querySelectorAll(".weather-dropdown-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const val = item.getAttribute("data-value");
+      if (val) {
+        menu.querySelectorAll(".weather-dropdown-item").forEach((el) => {
+          el.classList.remove("is-selected");
+        });
+        item.classList.add("is-selected");
+        trigger.textContent = item.textContent;
+        
+        const changeEvent = new CustomEvent("change", { detail: { value: val } });
+        dropdownContainer.dispatchEvent(changeEvent);
+      }
+    });
+  });
+
+  return { dropdown: dropdownContainer, legendTitle, legendTicks };
+}
+
+function updateLegend(
+  legendTitle: HTMLDivElement,
+  legendTicks: HTMLDivElement,
+  config: WeatherVariableConfig,
+) {
+  legendTitle.textContent = config.unit;
+  legendTicks.replaceChildren();
+
+  config.ticks.forEach((tickVal) => {
+    const span = document.createElement("span");
+    span.textContent = config.key === "snow_depth" ? tickVal.toFixed(1) : tickVal.toFixed(0);
+    legendTicks.append(span);
+  });
 }
 
 function createTimeline() {
@@ -257,9 +322,10 @@ function renderHour(
   overlay: WeatherOverlay,
   dataset: WeatherDataset,
   index: number,
+  variableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m",
 ) {
   const hour = dataset.hours[index];
-  const cells = buildTemperatureCells(dataset, hour);
+  const cells = buildTemperatureCells(dataset, hour, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
   overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
@@ -283,7 +349,7 @@ function renderHour(
     .attr("height", (d) => d.size)
     .attr("fill", (d) => temperatureColor(d.temperature))
     .attr("data-temperature", (d) =>
-      displayedTemperature(d.temperature).toFixed(1),
+      d.rawValue.toFixed(1),
     )
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
@@ -310,6 +376,7 @@ function dispatchSelectedDateChange(
 function bindTooltip(
   layer: d3.Selection<SVGGElement, undefined, null, undefined>,
   overlay: WeatherOverlay,
+  getVariableConfig: () => WeatherVariableConfig,
 ) {
   layer
     .on("mousemove", (event) => {
@@ -321,15 +388,15 @@ function bindTooltip(
           y >= candidate.y &&
           y < candidate.y + candidate.size,
       );
-      const temperature = cell?.temperature;
 
-      if (typeof temperature === "number" && Number.isFinite(temperature)) {
+      if (cell && typeof cell.rawValue === "number" && Number.isFinite(cell.rawValue)) {
+        const config = getVariableConfig();
         tooltip
           .style("display", "block")
           .style("left", `${event.pageX + 10}px`)
           .style("top", `${event.pageY + 10}px`)
           .style("background", COLORS.TOOLTIP.BACKGROUND)
-          .text(`${displayedTemperature(temperature).toFixed(1)} °C`);
+          .text(`${cell.rawValue.toFixed(1)} ${config.unit}`);
       } else {
         tooltip.style("display", "none");
       }
@@ -340,7 +407,10 @@ function bindTooltip(
 export async function appendWeatherOverlay(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
 ) {
-  createLegend();
+  const { dropdown, legendTitle, legendTicks } = createLegend();
+
+  let activeVariableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m";
+  updateLegend(legendTitle, legendTicks, WEATHER_VARIABLES[activeVariableKey]);
 
   const controls = createTimeline();
   let activeRange: WeatherDateRange = {
@@ -355,6 +425,20 @@ export async function appendWeatherOverlay(
   let loadRequestId = 0;
   const svg = g.node()?.ownerSVGElement;
   const clipId = "weather-germany-clip";
+
+  dropdown.addEventListener("change", (event: Event) => {
+    const customEvent = event as CustomEvent<{ value: "temperature_2m" | "precipitation" | "snow_depth" }>;
+    const val = customEvent.detail.value;
+    if (WEATHER_VARIABLES[val]) {
+      activeVariableKey = val;
+      const config = WEATHER_VARIABLES[activeVariableKey];
+      updateLegend(legendTitle, legendTicks, config);
+
+      if (activeDataset && renderedHourIndex !== -1) {
+        renderHour(overlay, activeDataset, renderedHourIndex, activeVariableKey);
+      }
+    }
+  });
 
   if (svg) {
     d3.select(svg)
@@ -428,11 +512,11 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${selectedHourIndex}`;
     updateStepMarks(controls.stepMarks, dataset.hours);
 
-    renderHour(overlay, dataset, selectedHourIndex);
+    renderHour(overlay, dataset, selectedHourIndex, activeVariableKey);
     renderedHourIndex = selectedHourIndex;
   };
 
-  bindTooltip(layer, overlay);
+  bindTooltip(layer, overlay, () => WEATHER_VARIABLES[activeVariableKey]);
 
   const previewHour = (index: number) => {
     if (!activeDataset || index === renderedHourIndex) {
@@ -441,7 +525,7 @@ export async function appendWeatherOverlay(
 
     previewHourIndex = index;
     controls.slider.value = `${index}`;
-    renderHour(overlay, activeDataset, index);
+    renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
   };
 
@@ -458,7 +542,7 @@ export async function appendWeatherOverlay(
     activeRange = { ...activeRange, selected: hour.time };
     previewHourIndex = null;
     controls.slider.value = `${index}`;
-    renderHour(overlay, activeDataset, index);
+    renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
 
     if (selectedDayChanged) {
@@ -473,7 +557,7 @@ export async function appendWeatherOverlay(
 
     previewHourIndex = null;
     controls.slider.value = `${selectedHourIndex}`;
-    renderHour(overlay, activeDataset, selectedHourIndex);
+    renderHour(overlay, activeDataset, selectedHourIndex, activeVariableKey);
     renderedHourIndex = selectedHourIndex;
   };
 

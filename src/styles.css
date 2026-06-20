@@ -47,12 +47,104 @@
         border-radius: 6px;
         font-size: 13px;
         font-weight: 700;
+        pointer-events: auto;
     }
 
     .weather-chip span:last-child {
         color: rgba(247, 251, 255, 0.62);
         font-size: 12px;
         font-weight: 600;
+    }
+
+    .weather-dropdown-container {
+        position: relative;
+        width: 100%;
+        pointer-events: auto;
+    }
+
+    .weather-dropdown-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 6px;
+        background: rgba(18, 28, 24, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(10px);
+        color: #f7fbff;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        outline: none;
+        transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .weather-dropdown-trigger:hover {
+        background: rgba(24, 38, 32, 0.88);
+        border-color: rgba(255, 255, 255, 0.24);
+    }
+
+    .weather-dropdown-trigger::after {
+        content: "";
+        width: 10px;
+        height: 10px;
+        background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2712%27%20height%3D%2712%27%20viewBox%3D%270%200%2024%2024%27%20fill%3D%27none%27%20stroke%3D%27rgba(247%2C%20251%2C%20255%2C%200.8)%27%20stroke-width%3D%273%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%3E%3Cpolyline%20points%3D%276%209%2012%2015%2018%209%27%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+        background-repeat: no-repeat;
+        background-position: center;
+        transition: transform 0.2s ease;
+        margin-left: 8px;
+        flex-shrink: 0;
+    }
+
+    .weather-dropdown-container.is-open .weather-dropdown-trigger::after {
+        transform: rotate(180deg);
+    }
+
+    .weather-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 100;
+        display: none;
+        flex-direction: column;
+        background: rgba(18, 28, 24, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 6px;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(10px);
+        padding: 4px 0;
+        margin: 0;
+        list-style: none;
+    }
+
+    .weather-dropdown-container.is-open .weather-dropdown-menu {
+        display: flex;
+    }
+
+    .weather-dropdown-item {
+        padding: 8px 12px;
+        color: rgba(247, 251, 255, 0.85);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+        text-align: left;
+    }
+
+    .weather-dropdown-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
+    }
+
+    .weather-dropdown-item.is-selected {
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        font-weight: 700;
     }
 
     .weather-legend {
