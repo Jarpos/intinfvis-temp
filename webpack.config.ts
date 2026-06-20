@@ -33,9 +33,9 @@ const config: Configuration = {
                 {
                     from: "data",
                     to: "data",
-                    globOptions: {
-                        ignore: ["**/bahn/raw/**"],
-                    },
+                    // globOptions: {
+                    //     ignore: ["**/bahn/raw/**"],
+                    // },
                 },
             ],
         }),
