@@ -2,10 +2,7 @@ import * as d3 from "d3";
 
 import { COLORS } from "./colors";
 import { HEIGHT, WIDTH, tooltip } from "./config";
-import {
-  DEFAULT_DATE_RANGE,
-  SELECTED_DATE_CHANGE_EVENT,
-} from "./dateSync";
+import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
 import type { SelectedDateChangeDetail } from "./dateSync";
 import {
   TEMPERATURE_RANGE,
@@ -291,7 +288,7 @@ function renderHour(
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
 
-  overlay.status.textContent = `${formatTime.format(hour.time).replace(",", "")} · ${dataset.points.length} samples`;
+  // overlay.status.textContent = `${formatTime.format(hour.time).replace(",", "")} · ${dataset.points.length} samples`;
 }
 
 function dispatchSelectedDateChange(

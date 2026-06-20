@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 
 import { HEIGHT, WIDTH } from "../config";
-import { geojson, projection } from "./geo";
+import { projection } from "./geo";
 
 const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
 const GRID_COLUMNS = 7;
@@ -92,37 +92,137 @@ export const contourThresholds = d3.range(
   1,
 );
 
-const germanyPolygon = geojson as GeoJSON.FeatureCollection<GeoJSON.Geometry>;
-
-const pointInGermany = (longitude: number, latitude: number) =>
-  geojson.features.some((feature) =>
-    d3.geoContains(feature as GeoJSON.Feature, [longitude, latitude]),
-  );
+//Replaced the dynamic calculation of coordinates in buildWeatherGrid (which parsed a 5MB GeoJSON and executed 56 d3.geoContains checks on highly complex polygons at runtime) with a static array containing the 25 precomputed coordinates that fall inside Germany.
+const PRECOMPUTED_WEATHER_POINTS: WeatherPoint[] = [
+  {
+    "name": "48.38, 8.93",
+    "latitude": 48.382240299066346,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "48.38, 10.45",
+    "latitude": 48.382240299066346,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "48.38, 11.98",
+    "latitude": 48.382240299066346,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "49.49, 7.40",
+    "latitude": 49.49462128416791,
+    "longitude": 7.399368127187235
+  },
+  {
+    "name": "49.49, 8.93",
+    "latitude": 49.49462128416791,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "49.49, 10.45",
+    "latitude": 49.49462128416791,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "49.49, 11.98",
+    "latitude": 49.49462128416791,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "50.61, 7.40",
+    "latitude": 50.60700226926947,
+    "longitude": 7.399368127187235
+  },
+  {
+    "name": "50.61, 8.93",
+    "latitude": 50.60700226926947,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "50.61, 10.45",
+    "latitude": 50.60700226926947,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "50.61, 11.98",
+    "latitude": 50.60700226926947,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "51.72, 7.40",
+    "latitude": 51.71938325437103,
+    "longitude": 7.399368127187235
+  },
+  {
+    "name": "51.72, 8.93",
+    "latitude": 51.71938325437103,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "51.72, 10.45",
+    "latitude": 51.71938325437103,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "51.72, 11.98",
+    "latitude": 51.71938325437103,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "51.72, 13.51",
+    "latitude": 51.71938325437103,
+    "longitude": 13.510363737742136
+  },
+  {
+    "name": "52.83, 7.40",
+    "latitude": 52.83176423947259,
+    "longitude": 7.399368127187235
+  },
+  {
+    "name": "52.83, 8.93",
+    "latitude": 52.83176423947259,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "52.83, 10.45",
+    "latitude": 52.83176423947259,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "52.83, 11.98",
+    "latitude": 52.83176423947259,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "52.83, 13.51",
+    "latitude": 52.83176423947259,
+    "longitude": 13.510363737742136
+  },
+  {
+    "name": "53.94, 8.93",
+    "latitude": 53.94414522457416,
+    "longitude": 8.92711702982596
+  },
+  {
+    "name": "53.94, 10.45",
+    "latitude": 53.94414522457416,
+    "longitude": 10.454865932464685
+  },
+  {
+    "name": "53.94, 11.98",
+    "latitude": 53.94414522457416,
+    "longitude": 11.982614835103409
+  },
+  {
+    "name": "53.94, 13.51",
+    "latitude": 53.94414522457416,
+    "longitude": 13.510363737742136
+  }
+];
 
 function buildWeatherGrid(): WeatherPoint[] {
-  const bounds = d3.geoBounds(germanyPolygon);
-  const [[minLongitude, minLatitude], [maxLongitude, maxLatitude]] = bounds;
-  const points: WeatherPoint[] = [];
-
-  for (let row = 0; row < GRID_ROWS; row += 1) {
-    for (let column = 0; column < GRID_COLUMNS; column += 1) {
-      const longitude =
-        minLongitude +
-        (column / (GRID_COLUMNS - 1)) * (maxLongitude - minLongitude);
-      const latitude =
-        minLatitude + (row / (GRID_ROWS - 1)) * (maxLatitude - minLatitude);
-
-      if (pointInGermany(longitude, latitude)) {
-        points.push({
-          name: `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`,
-          latitude,
-          longitude,
-        });
-      }
-    }
-  }
-
-  return points;
+  return PRECOMPUTED_WEATHER_POINTS;
 }
 
 export const toDateInputValue = (date: Date) => {
