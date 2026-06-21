@@ -6,16 +6,21 @@ import { COLORS } from "./colors";
 import {
   appendTrainStrecken,
   appendTrainStations,
+  localStations,
   stations,
 } from "./data/bahn";
-import { appendGermany } from "./data/geo";
-import { map_svg, tooltip } from "./config";
+import type { Station } from "./data/bahn";
+import { appendGermany, geojson, projection } from "./data/geo";
+import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
 import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
 import type { SelectedDateChangeDetail } from "./dateSync";
 
 const g = map_svg.append("g");
-const selectedStationNames = new Set(stations.map((station) => station.name));
+const LOCAL_STATIONS_ZOOM_LEVEL = 4;
+let currentZoomTransform = d3.zoomIdentity;
+const allStationNames = new Set(localStations.map((station) => station.name));
+const selectedStationNames = new Set(allStationNames);
 
 // Germany Map
 appendGermany(g)
@@ -43,17 +48,103 @@ appendWeatherOverlay(g);
 
 const trainLinesLayer = g.append("g");
 const trainStationsLayer = g.append("g");
+let trainNetworkRenderFrame = 0;
+const geoPath = d3.geoPath(projection);
+
+function regionKey(state?: string | null, region?: string | null) {
+  return state && region ? `${state}|${region}` : null;
+}
+
+function regionBoundsIntersectViewport(
+  feature: GeoJSON.Feature,
+  padding = 64,
+) {
+  const [[minX, minY], [maxX, maxY]] = geoPath.bounds(feature);
+  const screenMinX = currentZoomTransform.applyX(minX);
+  const screenMaxX = currentZoomTransform.applyX(maxX);
+  const screenMinY = currentZoomTransform.applyY(minY);
+  const screenMaxY = currentZoomTransform.applyY(maxY);
+
+  return (
+    screenMaxX >= -padding &&
+    screenMinX <= WIDTH + padding &&
+    screenMaxY >= -padding &&
+    screenMinY <= HEIGHT + padding
+  );
+}
+
+function visibleRegionKeys() {
+  const visibleRegions = new Set<string>();
+
+  geojson.features.forEach((feature) => {
+    if (!regionBoundsIntersectViewport(feature)) {
+      return;
+    }
+
+    const properties = feature.properties as
+      | { NAME_1?: string; NAME_2?: string }
+      | null;
+    const key = regionKey(properties?.NAME_1, properties?.NAME_2);
+
+    if (key) {
+      visibleRegions.add(key);
+    }
+  });
+
+  return visibleRegions;
+}
+
+function stationIsInViewport(station: Station) {
+  const projected = projection(station.coords as [number, number]);
+
+  if (!projected) {
+    return false;
+  }
+
+  const [x, y] = projected;
+  const screenX = currentZoomTransform.applyX(x);
+  const screenY = currentZoomTransform.applyY(y);
+
+  return screenX >= 0 && screenX <= WIDTH && screenY >= 0 && screenY <= HEIGHT;
+}
 
 function renderTrainNetwork() {
-  const visibleStations = stations.filter((station) =>
-    selectedStationNames.has(station.name),
-  );
+  const shouldShowLocalStations =
+    currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL;
+  const stationSource = shouldShowLocalStations ? localStations : stations;
+  const localVisibleRegionKeys = shouldShowLocalStations
+    ? visibleRegionKeys()
+    : null;
+  const visibleStations = stationSource.filter((station) => {
+    if (!selectedStationNames.has(station.name)) {
+      return false;
+    }
+
+    if (!shouldShowLocalStations) {
+      return true;
+    }
+
+    const key = regionKey(station.state, station.region);
+
+    if (!key || !localVisibleRegionKeys?.has(key)) {
+      return false;
+    }
+
+    return stationIsInViewport(station);
+  });
 
   appendTrainStrecken(trainLinesLayer, selectedStationNames);
   appendTrainStations(trainStationsLayer, visibleStations)
     .on("mouseenter", function (_, d) {
       d3.select(this).attr("fill", COLORS.MAP.HIGHLIGHT);
-      tooltip.style("display", "block").text(d.name);
+      const locationParts = [d.state, d.region].filter(Boolean);
+      tooltip
+        .style("display", "block")
+        .text(
+          locationParts.length > 0
+            ? `${d.name} - ${locationParts.join(", ")}`
+            : d.name,
+        );
     })
     .on("mousemove", (event) => {
       tooltip
@@ -64,6 +155,17 @@ function renderTrainNetwork() {
       d3.select(this).attr("fill", COLORS.TRAINS.STATIONS);
       tooltip.style("display", "none");
     });
+}
+
+function scheduleTrainNetworkRender() {
+  if (trainNetworkRenderFrame) {
+    return;
+  }
+
+  trainNetworkRenderFrame = window.requestAnimationFrame(() => {
+    trainNetworkRenderFrame = 0;
+    renderTrainNetwork();
+  });
 }
 
 function getRequiredElement<T extends HTMLElement>(selector: string) {
@@ -87,11 +189,11 @@ function setupStationFilterPanel() {
 
   function renderStationList() {
     const query = searchInput.value.trim().toLowerCase();
-    const visibleStations = stations.filter((station) =>
+    const visibleStations = localStations.filter((station) =>
       station.name.toLowerCase().includes(query),
     );
 
-    countText.textContent = `${selectedStationNames.size} of ${stations.length} selected`;
+    countText.textContent = `${selectedStationNames.size} of ${allStationNames.size} selected`;
     list.replaceChildren();
 
     //Limited the number of rendered DOM elements in the station checkbox list to 200 (from ~10,000+) to ensure the UI remains responsive even when the user searches for common terms that match many stations. Added a message indicating how many stations are not shown and encouraging users to refine their search for better results.
@@ -149,7 +251,7 @@ function setupStationFilterPanel() {
 
   searchInput.addEventListener("input", renderStationList);
   selectAllButton.addEventListener("click", () => {
-    stations.forEach((station) => selectedStationNames.add(station.name));
+    localStations.forEach((station) => selectedStationNames.add(station.name));
     renderTrainNetwork();
     renderStationList();
   });
@@ -389,7 +491,11 @@ renderTrainNetwork();
 const zoom = d3
   .zoom<SVGSVGElement, undefined>()
   .scaleExtent([0.75, 20])
-  .on("zoom", (event) => g.attr("transform", event.transform));
+  .on("zoom", (event) => {
+    currentZoomTransform = event.transform;
+    g.attr("transform", currentZoomTransform.toString());
+    scheduleTrainNetworkRender();
+  });
 map_svg.call(zoom);
 setupStationFilterPanel();
 setupTimeRangePicker(DEFAULT_DATE_RANGE);

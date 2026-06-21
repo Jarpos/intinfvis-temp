@@ -7,6 +7,8 @@ export type Station = {
   name: string;
   coords: number[];
   eva: number;
+  region?: string;
+  state?: string;
 };
 
 //now filters connections using a fast Set.has check (O(1) per connection), reducing rendering calculations
@@ -62,20 +64,35 @@ export function appendTrainStations(
 
 export async function loadStations() {
   // TODO: Pull out link root into global scope
-  const stations = await d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
+  return d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
     name: d.name,
     eva: +d.eva,
     region: d.region_name,
+    state: d.state_name,
     coords: [
       +d.lon, // longitude first
       +d.lat, // latitude second
     ],
   }));
-  return stations;
+}
+
+export async function loadLocalStations() {
+  // TODO: Pull out link root into global scope
+  return d3.csv("/data/bahn/csv/stations-train.csv", (d) => ({
+    name: d.name,
+    eva: +d.eva,
+    region: d.region_name,
+    state: d.state_name,
+    coords: [
+      +d.lon, // longitude first
+      +d.lat, // latitude second
+    ],
+  }));
 }
 
 // Real German stations (lon, lat)
 export const stations = await loadStations();
+export const localStations = await loadLocalStations();
 
 export const trips = await d3
   // TODO: Pull out link root into global scope
