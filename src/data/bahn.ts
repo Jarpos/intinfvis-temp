@@ -51,6 +51,8 @@ export function appendTrainStrecken(
 export function appendTrainStations(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
   visibleStations: Station[] = stations,
+  radius = 0.5,
+  fill = COLORS.TRAINS.STATIONS,
 ) {
   return g
     .selectAll("circle")
@@ -58,8 +60,8 @@ export function appendTrainStations(
     .join("circle")
     .attr("cx", (d) => projection(d.coords as [number, number])![0])
     .attr("cy", (d) => projection(d.coords as [number, number])![1])
-    .attr("r", ".5")
-    .attr("fill", COLORS.TRAINS.STATIONS);
+    .attr("r", radius)
+    .attr("fill", fill);
 }
 
 export async function loadStations() {

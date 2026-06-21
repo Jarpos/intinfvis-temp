@@ -452,6 +452,7 @@ export async function appendWeatherOverlay(
 
   const layer = g
     .append("g")
+    .attr("class", "weather-overlay-layer")
     .attr("aria-label", "Hourly temperature overlay")
     .attr("clip-path", `url(#${clipId})`);
 
@@ -465,6 +466,7 @@ export async function appendWeatherOverlay(
   const overlay: WeatherOverlay = { layer, currentCells: [], ...controls };
 
   g.append("path")
+    .attr("class", "weather-boundary-layer")
     .datum(geojson)
     .attr("d", d3.geoPath(projection))
     .attr("fill", "none")
