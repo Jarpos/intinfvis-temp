@@ -16,8 +16,8 @@ export function appendTrainStrecken(
 ) {
   const filteredConnections = connections.filter(
     (c) =>
-      selectedStationNames.has(c.sourceName) &&
-      selectedStationNames.has(c.targetName),
+      selectedStationNames.has(c.source.name) &&
+      selectedStationNames.has(c.target.name),
   );
 
   return (
@@ -61,9 +61,11 @@ export function appendTrainStations(
 }
 
 export async function loadStations() {
-  const stations = await d3.csv("/data/bahn/csv/stations.csv", (d) => ({
+  // TODO: Pull out link root into global scope
+  const stations = await d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
     name: d.name,
     eva: +d.eva,
+    region: d.region_name,
     coords: [
       +d.lon, // longitude first
       +d.lat, // latitude second
@@ -76,52 +78,22 @@ export async function loadStations() {
 export const stations = await loadStations();
 
 export const trips = await d3
-  .csv("/data/bahn/csv/delays/2021-09-08.csv", (d) => ({
-    trip_id: d.trip_id,
-    stop_id: d.stop_id,
-    stop_sequence: +d.stop_sequence,
-    delay: +d.delay,
-  }))
-  .then((data) => {
-    const trips = d3.group(data, (d) => d.trip_id);
-    const tripList = Array.from(trips, ([trip_id, stops]) => ({
-      trip_id,
-      stops: stops
-        .sort((a, b) => a.stop_sequence - b.stop_sequence)
-        .map((d) => ({
-          stop_id: +d.stop_id,
-          stop_sequence: d.stop_sequence,
-          delay: d.delay,
-        })),
-    }));
-    return tripList;
-  });
-
-const stationByEva = new Map(stations.map((s) => [String(s.eva), s]));
+  // TODO: Pull out link root into global scope
+  .csv("/data/bahn/csv/delays/ic/2023-01-30.csv", (d) => ({
+    from_stop_id: +d.from_stop_id,
+    to_stop_id: +d.to_stop_id,
+    avg_delay: +d.avg_delay,
+  }));
 
 export type Connection = {
   source: Station;
   target: Station;
-  sourceName: string;
-  targetName: string;
   delay: number;
 };
 
-//Instead of calculating connection paths and scanning the entire stations array (O(M * N)) on every single selection check, we precompute connections and their corresponding station names on module load.
-export const connections: Connection[] = trips.flatMap((trip) =>
-  trip.stops
-    .slice(0, -1)
-    .map((stop, i) => {
-      const source = stationByEva.get(String(stop.stop_id));
-      const target = stationByEva.get(String(trip.stops[i + 1].stop_id));
-      if (!source || !target) return null;
-      return {
-        source,
-        target,
-        sourceName: source.name,
-        targetName: target.name,
-        delay: trip.stops[i + 1].delay,
-      };
-    })
-    .filter((d): d is Connection => d !== null),
-);
+const stationByEva = new Map(stations.map((s) => [s.eva, s]));
+const connections: Connection[] = trips.map(t => ({
+    source: stationByEva.get(t.from_stop_id) as Station,
+    target: stationByEva.get(t.to_stop_id) as Station,
+    delay: t.avg_delay,
+})).filter(c => !!c.target && !!c.source);

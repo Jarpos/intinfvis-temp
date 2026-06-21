@@ -29,7 +29,15 @@ const config: Configuration = {
         // Add your plugins here
         // Learn more about plugins from https://webpack.js.org/configuration/plugins/
         new CopyPlugin({
-            patterns: [{ from: "data", to: "data" }],
+            patterns: [
+                {
+                    from: "data",
+                    to: "data",
+                    // globOptions: {
+                    //     ignore: ["**/bahn/raw/**"],
+                    // },
+                },
+            ],
         }),
     ],
     module: {
