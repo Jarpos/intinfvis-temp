@@ -79,7 +79,6 @@ def write_by_region(
 
 def process_delays(delays: pd.DataFrame) -> pd.DataFrame:
     delays = delays[delays["category"].isin(TRAIN_CATEGORIES)]
-
     delays = delays.astype({
         "trip_id": "uint64",
         "initial_stop_id": "Int64",
@@ -89,14 +88,13 @@ def process_delays(delays: pd.DataFrame) -> pd.DataFrame:
 
 
 def convert_date(date: str):
+    os.makedirs(f"{path}/ic", exist_ok=True)
+    os.makedirs(f"{path}/non_ic", exist_ok=True)
+
     delays = pd.read_parquet(
         f"{path}/../../../../raw/delays/2023/{date}.parquet"
     )
-
     delays = delays.query("is_final == True")
-
-    os.makedirs(f"{path}/ic", exist_ok=True)
-    os.makedirs(f"{path}/non_ic", exist_ok=True)
 
     ic_delays = delays[
         delays["stop_id"].astype(int).isin(ic_stations)
@@ -108,7 +106,6 @@ def convert_date(date: str):
 
     # IC sections
     ic_sections = process_delays(ic_delays)
-
     ic_sections.to_csv(
         f"{path}/ic/{date}.csv",
         index=False,
