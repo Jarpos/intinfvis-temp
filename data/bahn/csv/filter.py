@@ -14,6 +14,7 @@ def drop_columns(df: pd.DataFrame):
         "lat",
         "lon",
         "region_name",
+        "state_name",
     ]]
 
 def split_by_geojson(
@@ -38,15 +39,18 @@ def split_by_geojson(
 
         for geom, (name1, name2) in zip(geometries, names):
             if geom.contains(point):
-                return f"{name2}" if name2 else None
-        return None
+                return name1, name2
+        return None, None
 
     df = df.copy()
-    df["region_name"] = df.apply(match_region, axis=1)
+    df[["state_name", "region_name"]] = pd.DataFrame(
+        df.apply(match_region, axis=1).tolist(), index=df.index
+    )
 
     mask = df["region_name"].notna()
 
     return df[mask], df[~mask]
+
 
 all = pd.read_parquet(f"{path}/../../../raw/stations.parquet")
 all = all.query("is_active_ris == True and is_active_iris == True")
