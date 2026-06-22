@@ -6,6 +6,10 @@ dates = [
     "2023-01-29",
     "2023-01-30",
     "2023-01-31",
+    "2023-02-01",
+    "2023-02-02",
+    "2023-02-03",
+    "2023-02-04",
 ]
 
 # WBA = Waldbahn (kleine bahnen. irrelevant)
@@ -34,23 +38,28 @@ def build_sections(df: pd.DataFrame) -> pd.DataFrame:
 
     sections["from_stop_id"] = sections["stop_id"].astype(int)
     sections["to_stop_id"] = sections["next_stop_id"].astype(int)
-    sections["avg_delay"] = (sections["delay"] + sections["next_delay"]) / 2
+    sections["section_delay"] = (sections["delay"] + sections["next_delay"]) / 2
+    sections["is_delayed"] = sections["section_delay"] > 0
 
     sections = (
         sections
         .groupby(["from_stop_id", "to_stop_id"], as_index=False)
         .agg(
-            avg_delay=("avg_delay", "mean"),
-            median_delay=("avg_delay", "median"),
-            max_delay=("avg_delay", "max"),
+            delay_count=("is_delayed", "sum"),
+            entries_count=("is_delayed", "size"),
+            avg_delay=("section_delay", "mean"),
+            median_delay=("section_delay", "median"),
+            max_delay=("section_delay", "max"),
         )
     )
 
-    return sections.astype({
-        "avg_delay": "int",
-        "median_delay": "int",
-        "max_delay": "int",
-    })
+    sections[["avg_delay", "median_delay", "max_delay"]] = (
+        sections[["avg_delay", "median_delay", "max_delay"]]
+        .round()
+        .astype(int)
+    )
+
+    return sections
 
 
 def add_region(df: pd.DataFrame, stop_column: str) -> pd.DataFrame:
@@ -87,9 +96,35 @@ def process_delays(delays: pd.DataFrame) -> pd.DataFrame:
     return build_sections(delays)
 
 
+def build_region_summary(
+    sections: pd.DataFrame,
+    date: str,
+) -> pd.DataFrame:
+    return (
+        sections
+            .groupby("region_name", as_index=False)
+            .apply(
+                lambda g: pd.Series({
+                    "section_count": len(g),
+                    "delay_count": g["delay_count"].sum(),
+                    "avg_delay": (
+                        (g["avg_delay"] * g["entries_count"]).sum()
+                        / g["entries_count"].sum()
+                    ),
+                    "median_delay": g["median_delay"].median(),
+                    "max_delay": g["max_delay"].max(),
+                    "total_entries": g["entries_count"].sum(),
+                })
+            )
+            .assign(date=date)
+            .reset_index(drop=True)
+    )
+
+
 def convert_date(date: str):
     os.makedirs(f"{path}/ic", exist_ok=True)
     os.makedirs(f"{path}/non_ic", exist_ok=True)
+    os.makedirs(f"{path}/summaries", exist_ok=True)
 
     delays = pd.read_parquet(
         f"{path}/../../../../raw/delays/2023/{date}.parquet"
@@ -104,14 +139,12 @@ def convert_date(date: str):
         ~delays["stop_id"].astype(int).isin(ic_stations)
     ]
 
-    # IC sections
     ic_sections = process_delays(ic_delays)
     ic_sections.to_csv(
         f"{path}/ic/{date}.csv",
         index=False,
     )
 
-    # Non-IC sections grouped by region
     non_ic_sections = process_delays(non_ic_delays)
     non_ic_sections = add_region(
         non_ic_sections,
@@ -122,6 +155,16 @@ def convert_date(date: str):
         non_ic_sections,
         f"{path}/non_ic",
         date,
+    )
+
+    region_summary = build_region_summary(
+        non_ic_sections,
+        date,
+    )
+
+    region_summary.to_csv(
+        f"{path}/summaries/summary-{date}.csv",
+        index=False,
     )
 
 
