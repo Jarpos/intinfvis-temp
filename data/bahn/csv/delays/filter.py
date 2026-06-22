@@ -1,24 +1,27 @@
 import os
 import pandas as pd
 
-dates = [
-    "2023-01-28",
-    "2023-01-29",
-    "2023-01-30",
-    "2023-01-31",
-    "2023-02-01",
-    "2023-02-02",
-    "2023-02-03",
-    "2023-02-04",
-]
+full_path = os.path.realpath(__file__)
+path, _ = os.path.split(full_path)
+
+dates = list(
+    map(lambda f: f.split('.')[0], os.listdir(f"{path}/../../../../raw/delays/2023/"))
+)[:100]
+# dates = [
+#     "2023-01-28",
+#     "2023-01-29",
+#     "2023-01-30",
+#     "2023-01-31",
+#     "2023-02-01",
+#     "2023-02-02",
+#     "2023-02-03",
+#     "2023-02-04",
+# ]
 
 # WBA = Waldbahn (kleine bahnen. irrelevant)
 TRAIN_CATEGORIES = {
     "ICE", "IC", "EC", "RE", "RB", "S", "U", "IRE"
 }
-
-full_path = os.path.realpath(__file__)
-path, _ = os.path.split(full_path)
 
 ic_stations = set(
     pd.read_csv(f"{path}/../stations-ic.csv")["eva"].astype(int)
