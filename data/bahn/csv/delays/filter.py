@@ -4,19 +4,16 @@ import pandas as pd
 full_path = os.path.realpath(__file__)
 path, _ = os.path.split(full_path)
 
+def flatten(xss):
+    return [x for xs in xss for x in xs]
+
+years = ["2023"]
 dates = list(
-    map(lambda f: f.split('.')[0], os.listdir(f"{path}/../../../../raw/delays/2023/"))
-)[:100]
-# dates = [
-#     "2023-01-28",
-#     "2023-01-29",
-#     "2023-01-30",
-#     "2023-01-31",
-#     "2023-02-01",
-#     "2023-02-02",
-#     "2023-02-03",
-#     "2023-02-04",
-# ]
+    map(
+        lambda f: f.split('.')[0],
+        flatten([os.listdir(f"{path}/../../../../raw/delays/{year}/") for year in years])
+    )
+)
 
 # WBA = Waldbahn (kleine bahnen. irrelevant)
 TRAIN_CATEGORIES = {
@@ -124,13 +121,13 @@ def build_region_summary(
     )
 
 
-def convert_date(date: str):
+def convert_date(year: str, date: str):
     os.makedirs(f"{path}/ic", exist_ok=True)
     os.makedirs(f"{path}/non_ic", exist_ok=True)
     os.makedirs(f"{path}/summaries", exist_ok=True)
 
     delays = pd.read_parquet(
-        f"{path}/../../../../raw/delays/2023/{date}.parquet"
+        f"{path}/../../../../raw/delays/{year}/{date}.parquet"
     )
     delays = delays.query("is_final == True")
 
@@ -172,6 +169,7 @@ def convert_date(date: str):
 
 
 for date in dates:
-    convert_date(date)
+    print(f"Processing year {date[:4]} date {date}")
+    convert_date(date[:4], date)
 
 pd.Series(dates).to_json(f"{path}/dates.json", orient="values", indent=2)
