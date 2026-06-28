@@ -44,7 +44,9 @@ export function appendTrainStrecken(
               ? "#fee08b"
               : "#1a9850",
       )
-      .attr("stroke-width", 0.5)
+      .attr("stroke-width", 0.9)
+      .attr("stroke-opacity", 0.9)
+      .attr("vector-effect", "non-scaling-stroke")
   );
 }
 

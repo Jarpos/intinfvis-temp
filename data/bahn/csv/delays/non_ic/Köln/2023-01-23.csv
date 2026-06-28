@@ -1,0 +1,5 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8000209,8000209,0,1,0,0,0,Köln
+8000209,8003330,0,1,0,0,0,Köln
+8006713,8000209,0,1,0,0,0,Köln
+8006713,8006713,0,1,0,0,0,Köln

@@ -562,7 +562,10 @@ function applyViewMode(mode: ViewMode) {
     ".weather-overlay-layer, .weather-boundary-layer",
   ).style("display", showTemperature ? "" : "none");
 
-  trainLinesLayer.style("display", showStations ? "" : "none");
+  trainLinesLayer.style(
+    "display",
+    showTemperature || showStations ? "" : "none",
+  );
   trainStationsLayer.style("display", showStations ? "" : "none");
   stateHoverLayer
     .style("display", showStations ? "" : "none")
@@ -572,9 +575,7 @@ function applyViewMode(mode: ViewMode) {
 
   tooltip.style("display", "none");
 
-  if (showStations) {
-    renderTrainNetwork();
-  }
+  renderTrainNetwork();
 }
 
 function setupViewModeControl() {
