@@ -1,0 +1,6 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8001157,8001157,4,4,1215,405,3990,Bremen
+8001157,8001561,2,2,2355,2355,4020,Bremen
+8001157,8003292,2,2,90,90,150,Bremen
+8001160,8000413,16,16,189,150,390,Bremen
+8001160,8001160,27,33,168,150,810,Bremen

@@ -1,0 +1,8 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8002102,8000090,0,2,0,0,0,Braunschweig
+8002102,8002102,0,2,0,0,0,Braunschweig
+8002677,8002259,0,1,0,0,0,Braunschweig
+8002677,8002677,0,2,0,0,0,Braunschweig
+8002677,8006707,0,1,0,0,0,Braunschweig
+8006707,8002677,0,1,0,0,0,Braunschweig
+8006707,8006707,0,2,0,0,0,Braunschweig
