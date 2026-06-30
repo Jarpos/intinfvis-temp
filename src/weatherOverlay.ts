@@ -33,6 +33,11 @@ type WeatherOverlay = {
   currentCells: TemperatureCell[];
 };
 
+export type WeatherOverlayController = {
+  showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
+  hideTooltip: () => void;
+};
+
 const formatTime = new Intl.DateTimeFormat("de-DE", {
   weekday: "short",
   day: "2-digit",
@@ -406,7 +411,7 @@ function bindTooltip(
 
 export async function appendWeatherOverlay(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-) {
+): Promise<WeatherOverlayController> {
   const { dropdown, legendTitle, legendTicks } = createLegend();
 
   let activeVariableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m";
@@ -647,4 +652,36 @@ export async function appendWeatherOverlay(
   } catch (error) {
     showWeatherError(error);
   }
+
+  return {
+    showTooltipAtPoint: (event, [x, y]) => {
+      const cell = overlay.currentCells.find(
+        (candidate) =>
+          x >= candidate.x &&
+          x < candidate.x + candidate.size &&
+          y >= candidate.y &&
+          y < candidate.y + candidate.size,
+      );
+
+      if (
+        !cell ||
+        typeof cell.rawValue !== "number" ||
+        !Number.isFinite(cell.rawValue)
+      ) {
+        tooltip.style("display", "none");
+        return false;
+      }
+
+      const config = WEATHER_VARIABLES[activeVariableKey];
+      tooltip
+        .style("display", "block")
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY + 10}px`)
+        .style("background", COLORS.TOOLTIP.BACKGROUND)
+        .text(`${cell.rawValue.toFixed(1)} ${config.unit}`);
+
+      return true;
+    },
+    hideTooltip: () => tooltip.style("display", "none"),
+  };
 }
