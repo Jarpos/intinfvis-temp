@@ -309,7 +309,8 @@ function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
     longitude: points.map((point) => point.longitude.toFixed(4)).join(","),
-    hourly: "temperature_2m,precipitation,snow_depth",
+    // hourly: "temperature_2m,precipitation,snow_depth",
+    daily: "temperature_2m_mean,precipitation_sum,snowfall_sum",
     temperature_unit: "celsius",
     timezone: "Europe/Berlin",
     start_date: toDateInputValue(start),

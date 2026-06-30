@@ -33,8 +33,7 @@ function regionKey(state?: string | null, region?: string | null) {
 
 function stateName(feature: GeoJSON.Feature) {
   return (
-    (feature.properties as { NAME_1?: string; name?: string } | null)
-      ?.NAME_1 ??
+    (feature.properties as { NAME_1?: string; name?: string } | null)?.NAME_1 ??
     (feature.properties as { NAME_1?: string; name?: string } | null)?.name ??
     "Unknown"
   );
@@ -44,10 +43,7 @@ function coordinateKey([longitude, latitude]: GeoJSON.Position) {
   return `${longitude.toFixed(5)},${latitude.toFixed(5)}`;
 }
 
-function edgeKey(
-  start: GeoJSON.Position,
-  end: GeoJSON.Position,
-) {
+function edgeKey(start: GeoJSON.Position, end: GeoJSON.Position) {
   const startKey = coordinateKey(start);
   const endKey = coordinateKey(end);
 
@@ -102,7 +98,10 @@ function addFeatureEdges(
 function buildStateBoundaryPaths() {
   const edgesByState = new Map<
     string,
-    Map<string, { start: GeoJSON.Position; end: GeoJSON.Position; count: number }>
+    Map<
+      string,
+      { start: GeoJSON.Position; end: GeoJSON.Position; count: number }
+    >
   >();
 
   geojson.features.forEach((feature) => {
@@ -159,10 +158,12 @@ const stateBoundaryLayer = g
   .attr("pointer-events", "none");
 const stateBoundaryAreas = stateBoundaryLayer
   .selectAll("path")
-  .data(Array.from(stateBoundaryPaths, ([state, pathData]) => ({
-    state,
-    pathData,
-  })))
+  .data(
+    Array.from(stateBoundaryPaths, ([state, pathData]) => ({
+      state,
+      pathData,
+    })),
+  )
   .join("path")
   .attr("d", (d) => d.pathData)
   .attr("fill", "none")
@@ -335,10 +336,7 @@ function stateAtScreenPoint(point: [number, number]) {
   return containingFeature ? stateName(containingFeature) : null;
 }
 
-function regionBoundsIntersectViewport(
-  feature: GeoJSON.Feature,
-  padding = 64,
-) {
+function regionBoundsIntersectViewport(feature: GeoJSON.Feature, padding = 64) {
   const [[minX, minY], [maxX, maxY]] = geoPath.bounds(feature);
   const screenMinX = currentZoomTransform.applyX(minX);
   const screenMaxX = currentZoomTransform.applyX(maxX);
@@ -361,9 +359,10 @@ function visibleRegionKeys() {
       return;
     }
 
-    const properties = feature.properties as
-      | { NAME_1?: string; NAME_2?: string }
-      | null;
+    const properties = feature.properties as {
+      NAME_1?: string;
+      NAME_2?: string;
+    } | null;
     const key = regionKey(properties?.NAME_1, properties?.NAME_2);
 
     if (key) {
@@ -614,9 +613,10 @@ function setupStationFilterPanel() {
     if (showLocation) {
       const location = document.createElement("span");
       location.className = "block truncate text-xs font-medium text-slate-400";
-      location.textContent = [stationState(station), stationRegion(station)].join(
-        ", ",
-      );
+      location.textContent = [
+        stationState(station),
+        stationRegion(station),
+      ].join(", ");
       textWrap.append(location);
     }
 
@@ -638,7 +638,9 @@ function setupStationFilterPanel() {
       );
 
       countText.textContent = `Search results - ${visibleStations.length.toLocaleString("de-DE")} stations`;
-      visibleStations.forEach((station) => appendStationCheckbox(station, true));
+      visibleStations.forEach((station) =>
+        appendStationCheckbox(station, true),
+      );
 
       if (visibleStations.length === 0) {
         const emptyState = document.createElement("p");
