@@ -1,0 +1,7 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8006596,8006596,0,1,0,0,0,Düsseldorf
+8006596,8006719,0,1,0,0,0,Düsseldorf
+8006619,8006619,0,1,0,0,0,Düsseldorf
+8006619,8006620,0,1,0,0,0,Düsseldorf
+8006620,8006596,0,1,0,0,0,Düsseldorf
+8006620,8006620,0,1,0,0,0,Düsseldorf

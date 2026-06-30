@@ -1,0 +1,12 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8012083,8012083,0,1,0,0,0,Brandenburg
+8012257,8012257,0,1,0,0,0,Brandenburg
+8012257,8012698,0,1,0,0,0,Brandenburg
+8012605,8012083,0,1,0,0,0,Brandenburg
+8012605,8012605,0,1,0,0,0,Brandenburg
+8012698,8012698,0,1,0,0,0,Brandenburg
+8012698,8013188,0,1,0,0,0,Brandenburg
+8012923,8012257,0,1,0,0,0,Brandenburg
+8012923,8012923,0,1,0,0,0,Brandenburg
+8013188,8012605,0,1,0,0,0,Brandenburg
+8013188,8013188,0,1,0,0,0,Brandenburg

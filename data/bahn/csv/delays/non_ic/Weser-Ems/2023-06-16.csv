@@ -1,0 +1,6 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8001071,8001071,0,1,0,0,0,Weser-Ems
+8001071,8003632,0,1,0,0,0,Weser-Ems
+8006367,8006367,0,1,0,0,0,Weser-Ems
+8006503,8006367,0,1,0,0,0,Weser-Ems
+8006503,8006503,0,1,0,0,0,Weser-Ems

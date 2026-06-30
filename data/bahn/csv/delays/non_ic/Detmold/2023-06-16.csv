@@ -1,0 +1,4 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8005276,8005276,0,1,0,0,0,Detmold
+8005322,8005276,0,1,0,0,0,Detmold
+8005322,8005322,0,1,0,0,0,Detmold
