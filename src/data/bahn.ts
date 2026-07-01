@@ -60,6 +60,18 @@ function stationIconForQuayCount(quayCount: number) {
   return triangleStationIcon;
 }
 
+function stationIconSizeMultiplier(quayCount: number) {
+  if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
+    return 1.5;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount > 19) {
+    return 2;
+  }
+
+  return 1;
+}
+
 function opacityForStationFill(fill: string) {
   const hexAlpha = fill.match(/^#[\da-f]{8}$/i)?.[0].slice(7, 9);
 
@@ -144,7 +156,7 @@ export function appendTrainStations(
   radius = 0.5,
   fill = COLORS.TRAINS.STATIONS,
 ) {
-  const iconSize = radius * 2.4;
+  const baseIconSize = radius * 2.4;
   const iconOpacity = opacityForStationFill(fill);
 
   return g
@@ -153,10 +165,24 @@ export function appendTrainStations(
     .join("image")
     .attr("class", "train-station-icon")
     .attr("href", (d) => stationIconForQuayCount(d.quay_count))
-    .attr("x", (d) => projection(d.coords as [number, number])![0] - iconSize / 2)
-    .attr("y", (d) => projection(d.coords as [number, number])![1] - iconSize / 2)
-    .attr("width", iconSize)
-    .attr("height", iconSize)
+    .attr("x", (d) => {
+      const iconSize = baseIconSize * stationIconSizeMultiplier(d.quay_count);
+
+      return projection(d.coords as [number, number])![0] - iconSize / 2;
+    })
+    .attr("y", (d) => {
+      const iconSize = baseIconSize * stationIconSizeMultiplier(d.quay_count);
+
+      return projection(d.coords as [number, number])![1] - iconSize / 2;
+    })
+    .attr(
+      "width",
+      (d) => baseIconSize * stationIconSizeMultiplier(d.quay_count),
+    )
+    .attr(
+      "height",
+      (d) => baseIconSize * stationIconSizeMultiplier(d.quay_count),
+    )
     .attr("preserveAspectRatio", "xMidYMid meet")
     .attr("opacity", iconOpacity)
     .attr("data-station-opacity", iconOpacity);
