@@ -3,13 +3,56 @@ import * as d3 from "d3";
 import { COLORS } from "../colors";
 import { projection } from "./geo";
 
-export type Station = {
-  name: string;
-  coords: number[];
+export interface StationCsvColumns {
   eva: number;
-  region?: string;
-  state?: string;
-};
+  name: string;
+  lat: number;
+  lon: number;
+  region_name: string;
+  state_name: string;
+  quay_count: number;
+  mobility_accessibility: boolean;
+  audible_accessibility: boolean;
+  visual_accessibility: boolean;
+  tactile_accessibility: boolean;
+}
+
+export interface Station extends StationCsvColumns {
+  coords: [number, number];
+  region: string;
+  state: string;
+}
+
+function parseCsvBoolean(value: string | undefined) {
+  return value === "true" || value === "1";
+}
+
+function parseStationRow(d: Record<string, string | undefined>): Station {
+  const lat = Number(d.lat);
+  const lon = Number(d.lon);
+  const regionName = d.region_name ?? "";
+  const stateName = d.state_name ?? "";
+
+  return {
+    eva: Number(d.eva),
+    name: d.name ?? "",
+    lat,
+    lon,
+    region_name: regionName,
+    state_name: stateName,
+    quay_count: Number(d.quay_count),
+    mobility_accessibility: parseCsvBoolean(d.mobility_accessibility),
+    audible_accessibility: parseCsvBoolean(d.audible_accessibility),
+    visual_accessibility: parseCsvBoolean(d.visual_accessibility),
+    tactile_accessibility: parseCsvBoolean(d.tactile_accessibility),
+    region: regionName,
+    state: stateName,
+    coords: [
+      lon, // longitude first
+      lat, // latitude second
+    ],
+  };
+}
 
 //now filters connections using a fast Set.has check (O(1) per connection), reducing rendering calculations
 export function appendTrainStrecken(
@@ -65,30 +108,12 @@ export function appendTrainStations(
 
 export async function loadIcStations() {
   // TODO: Pull out link root into global scope
-  return d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
-    name: d.name,
-    eva: +d.eva,
-    region: d.region_name,
-    state: d.state_name,
-    coords: [
-      +d.lon, // longitude first
-      +d.lat, // latitude second
-    ],
-  }));
+  return d3.csv("/data/bahn/csv/stations-ic.csv", parseStationRow);
 }
 
 export async function loadLocalStations() {
   // TODO: Pull out link root into global scope
-  return d3.csv("/data/bahn/csv/stations-train.csv", (d) => ({
-    name: d.name,
-    eva: +d.eva,
-    region: d.region_name,
-    state: d.state_name,
-    coords: [
-      +d.lon, // longitude first
-      +d.lat, // latitude second
-    ],
-  }));
+  return d3.csv("/data/bahn/csv/stations-train.csv", parseStationRow);
 }
 
 // Real German stations (lon, lat)
