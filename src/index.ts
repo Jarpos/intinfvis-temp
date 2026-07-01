@@ -8,8 +8,9 @@ import {
   appendTrainStations,
   localStations,
   icStations,
+  loadDelayConnections,
 } from "./data/bahn";
-import type { Station } from "./data/bahn";
+import type { Connection, DelayDateRange, Station } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
@@ -23,6 +24,13 @@ let focusedState: string | null = null;
 let isClickFocusing = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
+let trainConnections: Connection[] = [];
+let trainDelayRequestKey = "";
+let trainDelayLoadToken = 0;
+let selectedDelayRange: DelayDateRange = {
+  from: formatDateInputValue(DEFAULT_DATE_RANGE.from),
+  to: formatDateInputValue(DEFAULT_DATE_RANGE.to),
+};
 const allStationNames = new Set(localStations.map((station) => station.name));
 const selectedStationNames = new Set(allStationNames);
 const geoPath = d3.geoPath(projection);
@@ -399,7 +407,65 @@ function mergeStationsByEva(...stationGroups: Station[][]) {
   return Array.from(stationsByEva.values());
 }
 
+function delayRegionsForFocusedState() {
+  if (!focusedState) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      localStations
+        .filter((station) => station.state === focusedState)
+        .map((station) => station.region)
+        .filter((region): region is string => !!region),
+    ),
+  ).sort();
+}
+
+function trainDelayKey(range: DelayDateRange, regionNames: string[]) {
+  return [range.from, range.to, ...regionNames].join("|");
+}
+
+function setTrainDelayRange(range: DelayDateRange) {
+  selectedDelayRange = range;
+  trainDelayRequestKey = "";
+  renderTrainNetwork();
+}
+
+function requestTrainDelayConnections() {
+  const regionNames = delayRegionsForFocusedState();
+  const requestKey = trainDelayKey(selectedDelayRange, regionNames);
+
+  if (requestKey === trainDelayRequestKey) {
+    return;
+  }
+
+  trainDelayRequestKey = requestKey;
+  trainConnections = [];
+
+  const requestToken = ++trainDelayLoadToken;
+
+  loadDelayConnections(selectedDelayRange, regionNames)
+    .then((connections) => {
+      if (requestToken !== trainDelayLoadToken) {
+        return;
+      }
+
+      trainConnections = connections;
+      renderTrainNetwork();
+    })
+    .catch((error) => {
+      if (requestToken !== trainDelayLoadToken) {
+        return;
+      }
+
+      console.error("Failed to load train delay data", error);
+    });
+}
+
 function renderTrainNetwork() {
+  requestTrainDelayConnections();
+
   const shouldShowLocalStations = !!focusedState;
   const localVisibleRegionKeys = shouldShowLocalStations
     ? visibleRegionKeys()
@@ -446,7 +512,7 @@ function renderTrainNetwork() {
     ? COLORS.TRAINS.STATIONS
     : "#0f172a";
 
-  appendTrainStrecken(trainLinesLayer, visibleStationNames);
+  appendTrainStrecken(trainLinesLayer, trainConnections, visibleStationNames);
   appendTrainStations(
     trainStationsLayer,
     visibleStations,
@@ -836,6 +902,11 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   }
 
   function notifySelectedDateChange(selectedDate: Date) {
+    setTrainDelayRange({
+      from: formatDateInputValue(fromDate),
+      to: formatDateInputValue(toDate),
+    });
+
     document.dispatchEvent(
       new CustomEvent<SelectedDateChangeDetail>(SELECTED_DATE_CHANGE_EVENT, {
         detail: {
@@ -904,6 +975,10 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
+      setTrainDelayRange({
+        from: formatDateInputValue(fromDate),
+        to: formatDateInputValue(toDate),
+      });
     }
   }) as EventListener);
 

@@ -23,6 +23,23 @@ export interface Station extends StationCsvColumns {
   state: string;
 }
 
+export type DelayDateRange = {
+  from: string;
+  to: string;
+};
+
+export type DelayTrip = {
+  from_stop_id: number;
+  to_stop_id: number;
+  avg_delay: number;
+  entries_count: number;
+};
+
+type DelaySummary = {
+  region_name: string;
+  date: string;
+};
+
 function parseCsvBoolean(value: string | undefined) {
   return value === "true" || value === "1";
 }
@@ -57,6 +74,7 @@ function parseStationRow(d: Record<string, string | undefined>): Station {
 //now filters connections using a fast Set.has check (O(1) per connection), reducing rendering calculations
 export function appendTrainStrecken(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
+  connections: Connection[],
   selectedStationNames = new Set(icStations.map((station) => station.name)),
 ) {
   const filteredConnections = connections.filter(
@@ -120,25 +138,158 @@ export async function loadLocalStations() {
 export const icStations = await loadIcStations();
 export const localStations = await loadLocalStations();
 
-export const trips = await d3
-  // TODO: Pull out link root into global scope
-  .csv("/data/bahn/csv/delays/ic/2023-01-30.csv", (d) => ({
-    from_stop_id: +d.from_stop_id,
-    to_stop_id: +d.to_stop_id,
-    avg_delay: +d.avg_delay,
-  }));
-
 export type Connection = {
   source: Station;
   target: Station;
   delay: number;
 };
 
-const stationByEva = new Map(icStations.map((s) => [s.eva, s]));
-const connections: Connection[] = trips
-  .map((t) => ({
-    source: stationByEva.get(t.from_stop_id) as Station,
-    target: stationByEva.get(t.to_stop_id) as Station,
-    delay: t.avg_delay,
-  }))
-  .filter((c) => !!c.target && !!c.source);
+type DelayConnectionAggregate = {
+  source: Station;
+  target: Station;
+  weightedDelay: number;
+  entries: number;
+};
+
+const stationByEva = new Map(
+  [...localStations, ...icStations].map((station) => [station.eva, station]),
+);
+const delayRowsByUrl = new Map<string, Promise<DelayTrip[]>>();
+const delaySummariesByUrl = new Map<string, Promise<DelaySummary[]>>();
+let availableDelayDatesPromise: Promise<Set<string>> | null = null;
+
+function parseDelayRow(d: Record<string, string | undefined>): DelayTrip {
+  return {
+    from_stop_id: Number(d.from_stop_id),
+    to_stop_id: Number(d.to_stop_id),
+    avg_delay: Number(d.avg_delay),
+    entries_count: Number(d.entries_count),
+  };
+}
+
+function parseDelaySummaryRow(
+  d: Record<string, string | undefined>,
+): DelaySummary {
+  return {
+    region_name: d.region_name ?? "",
+    date: d.date ?? "",
+  };
+}
+
+function loadAvailableDelayDates() {
+  availableDelayDatesPromise ??= d3
+    .json<string[]>("/data/bahn/csv/delays/dates.json")
+    .then((dates) => new Set(dates ?? []));
+
+  return availableDelayDatesPromise;
+}
+
+function loadDelayRows(url: string) {
+  const cachedRows = delayRowsByUrl.get(url);
+
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const rows = d3.csv(url, parseDelayRow).catch(() => []);
+  delayRowsByUrl.set(url, rows);
+
+  return rows;
+}
+
+function loadDelaySummaryRows(date: string) {
+  const url = `/data/bahn/csv/delays/summaries/summary-${date}.csv`;
+  const cachedRows = delaySummariesByUrl.get(url);
+
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const rows = d3.csv(url, parseDelaySummaryRow).catch(() => []);
+  delaySummariesByUrl.set(url, rows);
+
+  return rows;
+}
+
+function delayDatesInRange(availableDates: Set<string>, range: DelayDateRange) {
+  return Array.from(availableDates)
+    .filter((date) => date >= range.from && date <= range.to)
+    .sort();
+}
+
+function delayRegionPathSegment(regionName: string) {
+  return encodeURIComponent(regionName);
+}
+
+function aggregateDelayConnections(trips: DelayTrip[]) {
+  const connectionsByEdge = new Map<string, DelayConnectionAggregate>();
+
+  trips.forEach((trip) => {
+    const source = stationByEva.get(trip.from_stop_id);
+    const target = stationByEva.get(trip.to_stop_id);
+
+    if (!source || !target || !Number.isFinite(trip.avg_delay)) {
+      return;
+    }
+
+    const key = `${source.eva}-${target.eva}`;
+    const entries =
+      Number.isFinite(trip.entries_count) && trip.entries_count > 0
+        ? trip.entries_count
+        : 1;
+    const current = connectionsByEdge.get(key);
+
+    if (current) {
+      current.weightedDelay += trip.avg_delay * entries;
+      current.entries += entries;
+    } else {
+      connectionsByEdge.set(key, {
+        source,
+        target,
+        weightedDelay: trip.avg_delay * entries,
+        entries,
+      });
+    }
+  });
+
+  return Array.from(connectionsByEdge.values()).map(
+    ({ source, target, weightedDelay, entries }) => ({
+      source,
+      target,
+      delay: weightedDelay / entries,
+    }),
+  );
+}
+
+export async function loadDelayConnections(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  const availableDates = await loadAvailableDelayDates();
+  const dates = delayDatesInRange(availableDates, range);
+  const regionNames = Array.from(new Set(nonIcRegions)).sort();
+  const regionNameSet = new Set(regionNames);
+  const icUrls = dates.map((date) => `/data/bahn/csv/delays/ic/${date}.csv`);
+  const nonIcUrls =
+    regionNames.length > 0
+      ? (
+          await Promise.all(
+            dates.map(async (date) => {
+              const summaries = await loadDelaySummaryRows(date);
+
+              return summaries
+                .filter((summary) => regionNameSet.has(summary.region_name))
+                .map(
+                  (summary) =>
+                    `/data/bahn/csv/delays/non_ic/${delayRegionPathSegment(summary.region_name)}/${summary.date}.csv`,
+                );
+            }),
+          )
+        ).flat()
+      : [];
+  const delayRows = await Promise.all(
+    [...icUrls, ...nonIcUrls].map((url) => loadDelayRows(url)),
+  );
+
+  return aggregateDelayConnections(delayRows.flat());
+}
