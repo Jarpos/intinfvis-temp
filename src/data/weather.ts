@@ -291,6 +291,12 @@ const endOfDay = (date: Date) => {
   return end;
 };
 
+const addDays = (date: Date, days: number) => {
+  const next = startOfDay(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
 const startOfCurrentHour = () => {
   const date = new Date();
   date.setMinutes(0, 0, 0);
@@ -305,12 +311,13 @@ function getWeatherWindow(range: WeatherDateRange) {
   const start = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
   const requestedEnd = endOfDay(rangeStart <= rangeEnd ? rangeEnd : rangeStart);
   const end = requestedEnd > currentHour ? currentHour : requestedEnd;
+  const requestStart = addDays(start, -1);
 
-  return { start, end, selectedDay };
+  return { start, end, requestStart, selectedDay };
 }
 
 function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
-  const { start, end } = getWeatherWindow(range);
+  const { requestStart, end } = getWeatherWindow(range);
 
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
@@ -318,7 +325,7 @@ function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
     daily: "temperature_2m_mean,precipitation_sum,snowfall_sum",
     temperature_unit: "celsius",
     timezone: "Europe/Berlin",
-    start_date: toDateInputValue(start),
+    start_date: toDateInputValue(requestStart),
     end_date: toDateInputValue(end),
     models: "icon_d2",
   });

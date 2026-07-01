@@ -14,8 +14,15 @@ import type { Connection, DelayDateRange, Station } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
-import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
-import type { SelectedDateChangeDetail } from "./dateSync";
+import {
+  DEFAULT_DATE_RANGE,
+  SELECTED_DATE_CHANGE_EVENT,
+  WEATHER_DATE_PREVIEW_EVENT,
+} from "./dateSync";
+import type {
+  SelectedDateChangeDetail,
+  WeatherDatePreviewDetail,
+} from "./dateSync";
 
 const g = map_svg.append("g");
 const LOCAL_STATIONS_ZOOM_LEVEL = 2;
@@ -427,6 +434,13 @@ function trainDelayKey(range: DelayDateRange, regionNames: string[]) {
 }
 
 function setTrainDelayRange(range: DelayDateRange) {
+  if (
+    selectedDelayRange.from === range.from &&
+    selectedDelayRange.to === range.to
+  ) {
+    return;
+  }
+
   selectedDelayRange = range;
   trainDelayRequestKey = "";
   renderTrainNetwork();
@@ -962,7 +976,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
   toInput.addEventListener("change", () => updateToInput(toInput.value));
   document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
-    const { from, to, source } = (
+    const { from, to, selected, source } = (
       event as CustomEvent<SelectedDateChangeDetail>
     ).detail;
 
@@ -975,11 +989,23 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
-      setTrainDelayRange({
-        from: formatDateInputValue(fromDate),
-        to: formatDateInputValue(toDate),
-      });
+
+      if (source === "weather-timeline") {
+        setTrainDelayRange({ from: selected, to: selected });
+      } else {
+        setTrainDelayRange({
+          from: formatDateInputValue(fromDate),
+          to: formatDateInputValue(toDate),
+        });
+      }
     }
+  }) as EventListener);
+
+  document.addEventListener(WEATHER_DATE_PREVIEW_EVENT, ((event: Event) => {
+    const { selected } = (event as CustomEvent<WeatherDatePreviewDetail>)
+      .detail;
+
+    setTrainDelayRange({ from: selected, to: selected });
   }) as EventListener);
 
   syncInputs();

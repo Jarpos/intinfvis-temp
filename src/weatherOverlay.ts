@@ -2,7 +2,11 @@ import * as d3 from "d3";
 
 import { COLORS } from "./colors";
 import { HEIGHT, WIDTH, tooltip } from "./config";
-import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
+import {
+  DEFAULT_DATE_RANGE,
+  SELECTED_DATE_CHANGE_EVENT,
+  WEATHER_DATE_PREVIEW_EVENT,
+} from "./dateSync";
 import type { SelectedDateChangeDetail } from "./dateSync";
 import {
   TEMPERATURE_RANGE,
@@ -322,6 +326,43 @@ function hourIndexFromPointer(
   return Math.round(ratio * (hours.length - 1));
 }
 
+function buildRenderableCells(
+  dataset: WeatherDataset,
+  index: number,
+  variableKey: "temperature_2m" | "precipitation" | "snow_depth",
+) {
+  const selectedCells = buildTemperatureCells(
+    dataset,
+    dataset.hours[index],
+    variableKey,
+  );
+
+  if (selectedCells.length > 0) {
+    return selectedCells;
+  }
+
+  for (let distance = 1; distance < dataset.hours.length; distance += 1) {
+    const fallbackIndexes = [index - distance, index + distance].filter(
+      (fallbackIndex) =>
+        fallbackIndex >= 0 && fallbackIndex < dataset.hours.length,
+    );
+
+    for (const fallbackIndex of fallbackIndexes) {
+      const fallbackCells = buildTemperatureCells(
+        dataset,
+        dataset.hours[fallbackIndex],
+        variableKey,
+      );
+
+      if (fallbackCells.length > 0) {
+        return fallbackCells;
+      }
+    }
+  }
+
+  return selectedCells;
+}
+
 function renderHour(
   overlay: WeatherOverlay,
   dataset: WeatherDataset,
@@ -332,7 +373,7 @@ function renderHour(
     | "snow_depth" = "temperature_2m",
 ) {
   const hour = dataset.hours[index];
-  const cells = buildTemperatureCells(dataset, hour, variableKey);
+  const cells = buildRenderableCells(dataset, index, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
   overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
@@ -373,6 +414,16 @@ function dispatchSelectedDateChange(
         to: toDateInputValue(range.to),
         selected: toDateInputValue(selectedDate),
         source: "weather-timeline",
+      },
+    }),
+  );
+}
+
+function dispatchWeatherDatePreview(selectedDate: Date) {
+  document.dispatchEvent(
+    new CustomEvent(WEATHER_DATE_PREVIEW_EVENT, {
+      detail: {
+        selected: toDateInputValue(selectedDate),
       },
     }),
   );
@@ -546,6 +597,7 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${index}`;
     renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
+    dispatchWeatherDatePreview(activeDataset.hours[index].time);
   };
 
   const commitHour = (index: number) => {
@@ -578,6 +630,7 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${selectedHourIndex}`;
     renderHour(overlay, activeDataset, selectedHourIndex, activeVariableKey);
     renderedHourIndex = selectedHourIndex;
+    dispatchWeatherDatePreview(activeDataset.hours[selectedHourIndex].time);
   };
 
   const previewFromPointer = (event: MouseEvent) => {
