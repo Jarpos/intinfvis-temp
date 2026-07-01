@@ -7,7 +7,7 @@ import {
   appendTrainStrecken,
   appendTrainStations,
   localStations,
-  stations,
+  icStations,
 } from "./data/bahn";
 import type { Station } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
@@ -390,7 +390,7 @@ function stationIsInViewport(station: Station) {
 function renderTrainNetwork() {
   const shouldShowLocalStations =
     currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL;
-  const stationSource = shouldShowLocalStations ? localStations : stations;
+  const stationSource = shouldShowLocalStations ? localStations : icStations;
   const localVisibleRegionKeys = shouldShowLocalStations
     ? visibleRegionKeys()
     : null;
@@ -797,32 +797,15 @@ function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function sameDay(left: Date, right: Date) {
-  return startOfDay(left).getTime() === startOfDay(right).getTime();
-}
-
-function addMonths(date: Date, offset: number) {
-  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
-}
-
 function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   const fromInput = getRequiredElement<HTMLInputElement>("#from-date");
   const toInput = getRequiredElement<HTMLInputElement>("#to-date");
-  const monthLabel =
-    getRequiredElement<HTMLParagraphElement>("#calendar-month");
-  const calendarDays = getRequiredElement<HTMLDivElement>("#calendar-days");
-  const previousMonthButton =
-    getRequiredElement<HTMLButtonElement>("#previous-month");
-  const nextMonthButton = getRequiredElement<HTMLButtonElement>("#next-month");
 
-  const today = startOfDay(new Date());
   const initialFromDate = startOfDay(initialRange.from);
   const initialToDate = startOfDay(initialRange.to);
 
   let fromDate = initialFromDate;
   let toDate = initialToDate;
-  let activeBoundary: "from" | "to" = "from";
-  let displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
 
   function syncInputs() {
     fromInput.value = formatDateInputValue(fromDate);
@@ -845,10 +828,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   function setDateRange(nextFromDate: Date, nextToDate: Date) {
     fromDate = startOfDay(nextFromDate);
     toDate = startOfDay(nextToDate);
-    displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
-    activeBoundary = "to";
     syncInputs();
-    renderCalendar();
   }
 
   function updateFromInput(value: string) {
@@ -864,9 +844,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       toDate = fromDate;
     }
 
-    displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
     syncInputs();
-    renderCalendar();
     notifySelectedDateChange(fromDate);
   }
 
@@ -883,95 +861,12 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       fromDate = toDate;
     }
 
-    displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
     syncInputs();
-    renderCalendar();
     notifySelectedDateChange(toDate);
   }
 
-  function renderCalendar() {
-    const monthFormatter = new Intl.DateTimeFormat("en", {
-      month: "long",
-      year: "numeric",
-    });
-    const year = displayedMonth.getFullYear();
-    const month = displayedMonth.getMonth();
-    const firstWeekdayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    monthLabel.textContent = monthFormatter.format(displayedMonth);
-    calendarDays.replaceChildren();
-
-    for (let index = 0; index < firstWeekdayOffset; index += 1) {
-      calendarDays.append(document.createElement("span"));
-    }
-
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day);
-      const isFromDate = sameDay(date, fromDate);
-      const isToDate = sameDay(date, toDate);
-      const isInRange = date > fromDate && date < toDate;
-      const isToday = sameDay(date, today);
-      const button = document.createElement("button");
-
-      button.type = "button";
-      button.textContent = String(day);
-      button.ariaLabel = `Select ${formatDateInputValue(date)}`;
-      button.className = [
-        "h-8 rounded-md text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-sky-300",
-        isFromDate || isToDate
-          ? "bg-sky-600 text-white hover:bg-sky-700"
-          : isInRange
-            ? "bg-sky-100 text-sky-800 hover:bg-sky-200"
-            : "bg-white text-slate-600 hover:bg-slate-100",
-        isToday && !isFromDate && !isToDate ? "ring-1 ring-sky-400" : "",
-      ].join(" ");
-
-      button.addEventListener("click", () => {
-        if (activeBoundary === "from") {
-          fromDate = date;
-
-          if (fromDate > toDate) {
-            toDate = fromDate;
-          }
-
-          activeBoundary = "to";
-          notifySelectedDateChange(fromDate);
-        } else {
-          toDate = date;
-
-          if (toDate < fromDate) {
-            fromDate = toDate;
-          }
-
-          activeBoundary = "from";
-          notifySelectedDateChange(toDate);
-        }
-
-        syncInputs();
-        renderCalendar();
-      });
-
-      calendarDays.append(button);
-    }
-  }
-
-  fromInput.addEventListener("focus", () => {
-    activeBoundary = "from";
-  });
-  toInput.addEventListener("focus", () => {
-    activeBoundary = "to";
-  });
   fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
   toInput.addEventListener("change", () => updateToInput(toInput.value));
-  previousMonthButton.addEventListener("click", () => {
-    displayedMonth = addMonths(displayedMonth, -1);
-    renderCalendar();
-  });
-  nextMonthButton.addEventListener("click", () => {
-    displayedMonth = addMonths(displayedMonth, 1);
-    renderCalendar();
-  });
   document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
     const { from, to, source } = (
       event as CustomEvent<SelectedDateChangeDetail>
@@ -990,7 +885,6 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   }) as EventListener);
 
   syncInputs();
-  renderCalendar();
 }
 
 renderTrainNetwork();

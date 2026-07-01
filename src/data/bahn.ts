@@ -14,7 +14,7 @@ export type Station = {
 //now filters connections using a fast Set.has check (O(1) per connection), reducing rendering calculations
 export function appendTrainStrecken(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-  selectedStationNames = new Set(stations.map((station) => station.name)),
+  selectedStationNames = new Set(icStations.map((station) => station.name)),
 ) {
   const filteredConnections = connections.filter(
     (c) =>
@@ -25,10 +25,7 @@ export function appendTrainStrecken(
   return (
     g
       .selectAll("line")
-      .data(
-        filteredConnections,
-        (d: any) => `${d.source.eva}-${d.target.eva}`,
-      )
+      .data(filteredConnections, (d: any) => `${d.source.eva}-${d.target.eva}`)
       .join("line")
       .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
       .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
@@ -52,7 +49,7 @@ export function appendTrainStrecken(
 
 export function appendTrainStations(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-  visibleStations: Station[] = stations,
+  visibleStations: Station[] = icStations,
   radius = 0.5,
   fill = COLORS.TRAINS.STATIONS,
 ) {
@@ -66,7 +63,7 @@ export function appendTrainStations(
     .attr("fill", fill);
 }
 
-export async function loadStations() {
+export async function loadIcStations() {
   // TODO: Pull out link root into global scope
   return d3.csv("/data/bahn/csv/stations-ic.csv", (d) => ({
     name: d.name,
@@ -95,7 +92,7 @@ export async function loadLocalStations() {
 }
 
 // Real German stations (lon, lat)
-export const stations = await loadStations();
+export const icStations = await loadIcStations();
 export const localStations = await loadLocalStations();
 
 export const trips = await d3
@@ -112,9 +109,11 @@ export type Connection = {
   delay: number;
 };
 
-const stationByEva = new Map(stations.map((s) => [s.eva, s]));
-const connections: Connection[] = trips.map(t => ({
+const stationByEva = new Map(icStations.map((s) => [s.eva, s]));
+const connections: Connection[] = trips
+  .map((t) => ({
     source: stationByEva.get(t.from_stop_id) as Station,
     target: stationByEva.get(t.to_stop_id) as Station,
     delay: t.avg_delay,
-})).filter(c => !!c.target && !!c.source);
+  }))
+  .filter((c) => !!c.target && !!c.source);
