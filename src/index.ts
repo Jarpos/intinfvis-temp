@@ -387,14 +387,24 @@ function stationIsInViewport(station: Station) {
   return screenX >= 0 && screenX <= WIDTH && screenY >= 0 && screenY <= HEIGHT;
 }
 
+function mergeStationsByEva(...stationGroups: Station[][]) {
+  const stationsByEva = new Map<number, Station>();
+
+  stationGroups.flat().forEach((station) => {
+    if (!stationsByEva.has(station.eva)) {
+      stationsByEva.set(station.eva, station);
+    }
+  });
+
+  return Array.from(stationsByEva.values());
+}
+
 function renderTrainNetwork() {
-  const shouldShowLocalStations =
-    currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL;
-  const stationSource = shouldShowLocalStations ? localStations : icStations;
+  const shouldShowLocalStations = !!focusedState;
   const localVisibleRegionKeys = shouldShowLocalStations
     ? visibleRegionKeys()
     : null;
-  const visibleStations = stationSource.filter((station) => {
+  const visibleIcStations = icStations.filter((station) => {
     if (!selectedStationNames.has(station.name)) {
       return false;
     }
@@ -403,18 +413,31 @@ function renderTrainNetwork() {
       return false;
     }
 
-    if (!shouldShowLocalStations) {
-      return true;
-    }
-
-    const key = regionKey(station.state, station.region);
-
-    if (!key || !localVisibleRegionKeys?.has(key)) {
-      return false;
-    }
-
-    return stationIsInViewport(station);
+    return true;
   });
+  const visibleLocalStations = shouldShowLocalStations
+    ? localStations.filter((station) => {
+        if (!selectedStationNames.has(station.name)) {
+          return false;
+        }
+
+        if (station.state !== focusedState) {
+          return false;
+        }
+
+        const key = regionKey(station.state, station.region);
+
+        if (!key || !localVisibleRegionKeys?.has(key)) {
+          return false;
+        }
+
+        return stationIsInViewport(station);
+      })
+    : [];
+  const visibleStations = mergeStationsByEva(
+    visibleIcStations,
+    visibleLocalStations,
+  );
   const visibleStationNames = new Set(
     visibleStations.map((station) => station.name),
   );
