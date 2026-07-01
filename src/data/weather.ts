@@ -55,7 +55,10 @@ export interface WeatherVariableConfig {
   ticks: number[];
 }
 
-export const WEATHER_VARIABLES: Record<"temperature_2m" | "precipitation" | "snow_depth", WeatherVariableConfig> = {
+export const WEATHER_VARIABLES: Record<
+  "temperature_2m" | "precipitation" | "snow_depth",
+  WeatherVariableConfig
+> = {
   temperature_2m: {
     key: "temperature_2m",
     label: "Temperature",
@@ -82,7 +85,10 @@ export const WEATHER_VARIABLES: Record<"temperature_2m" | "precipitation" | "sno
   },
 };
 
-export function mapValueToRamp(value: number, config: WeatherVariableConfig): number {
+export function mapValueToRamp(
+  value: number,
+  config: WeatherVariableConfig,
+): number {
   const clamped = Math.max(config.min, Math.min(config.max, value));
   return -40 + ((clamped - config.min) / (config.max - config.min)) * 90;
 }
@@ -139,130 +145,130 @@ export const contourThresholds = d3.range(
 //Replaced the dynamic calculation of coordinates in buildWeatherGrid (which parsed a 5MB GeoJSON and executed 56 d3.geoContains checks on highly complex polygons at runtime) with a static array containing the 25 precomputed coordinates that fall inside Germany.
 const PRECOMPUTED_WEATHER_POINTS: WeatherPoint[] = [
   {
-    "name": "48.38, 8.93",
-    "latitude": 48.382240299066346,
-    "longitude": 8.92711702982596
+    name: "48.38, 8.93",
+    latitude: 48.382240299066346,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "48.38, 10.45",
-    "latitude": 48.382240299066346,
-    "longitude": 10.454865932464685
+    name: "48.38, 10.45",
+    latitude: 48.382240299066346,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "48.38, 11.98",
-    "latitude": 48.382240299066346,
-    "longitude": 11.982614835103409
+    name: "48.38, 11.98",
+    latitude: 48.382240299066346,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "49.49, 7.40",
-    "latitude": 49.49462128416791,
-    "longitude": 7.399368127187235
+    name: "49.49, 7.40",
+    latitude: 49.49462128416791,
+    longitude: 7.399368127187235,
   },
   {
-    "name": "49.49, 8.93",
-    "latitude": 49.49462128416791,
-    "longitude": 8.92711702982596
+    name: "49.49, 8.93",
+    latitude: 49.49462128416791,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "49.49, 10.45",
-    "latitude": 49.49462128416791,
-    "longitude": 10.454865932464685
+    name: "49.49, 10.45",
+    latitude: 49.49462128416791,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "49.49, 11.98",
-    "latitude": 49.49462128416791,
-    "longitude": 11.982614835103409
+    name: "49.49, 11.98",
+    latitude: 49.49462128416791,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "50.61, 7.40",
-    "latitude": 50.60700226926947,
-    "longitude": 7.399368127187235
+    name: "50.61, 7.40",
+    latitude: 50.60700226926947,
+    longitude: 7.399368127187235,
   },
   {
-    "name": "50.61, 8.93",
-    "latitude": 50.60700226926947,
-    "longitude": 8.92711702982596
+    name: "50.61, 8.93",
+    latitude: 50.60700226926947,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "50.61, 10.45",
-    "latitude": 50.60700226926947,
-    "longitude": 10.454865932464685
+    name: "50.61, 10.45",
+    latitude: 50.60700226926947,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "50.61, 11.98",
-    "latitude": 50.60700226926947,
-    "longitude": 11.982614835103409
+    name: "50.61, 11.98",
+    latitude: 50.60700226926947,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "51.72, 7.40",
-    "latitude": 51.71938325437103,
-    "longitude": 7.399368127187235
+    name: "51.72, 7.40",
+    latitude: 51.71938325437103,
+    longitude: 7.399368127187235,
   },
   {
-    "name": "51.72, 8.93",
-    "latitude": 51.71938325437103,
-    "longitude": 8.92711702982596
+    name: "51.72, 8.93",
+    latitude: 51.71938325437103,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "51.72, 10.45",
-    "latitude": 51.71938325437103,
-    "longitude": 10.454865932464685
+    name: "51.72, 10.45",
+    latitude: 51.71938325437103,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "51.72, 11.98",
-    "latitude": 51.71938325437103,
-    "longitude": 11.982614835103409
+    name: "51.72, 11.98",
+    latitude: 51.71938325437103,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "51.72, 13.51",
-    "latitude": 51.71938325437103,
-    "longitude": 13.510363737742136
+    name: "51.72, 13.51",
+    latitude: 51.71938325437103,
+    longitude: 13.510363737742136,
   },
   {
-    "name": "52.83, 7.40",
-    "latitude": 52.83176423947259,
-    "longitude": 7.399368127187235
+    name: "52.83, 7.40",
+    latitude: 52.83176423947259,
+    longitude: 7.399368127187235,
   },
   {
-    "name": "52.83, 8.93",
-    "latitude": 52.83176423947259,
-    "longitude": 8.92711702982596
+    name: "52.83, 8.93",
+    latitude: 52.83176423947259,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "52.83, 10.45",
-    "latitude": 52.83176423947259,
-    "longitude": 10.454865932464685
+    name: "52.83, 10.45",
+    latitude: 52.83176423947259,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "52.83, 11.98",
-    "latitude": 52.83176423947259,
-    "longitude": 11.982614835103409
+    name: "52.83, 11.98",
+    latitude: 52.83176423947259,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "52.83, 13.51",
-    "latitude": 52.83176423947259,
-    "longitude": 13.510363737742136
+    name: "52.83, 13.51",
+    latitude: 52.83176423947259,
+    longitude: 13.510363737742136,
   },
   {
-    "name": "53.94, 8.93",
-    "latitude": 53.94414522457416,
-    "longitude": 8.92711702982596
+    name: "53.94, 8.93",
+    latitude: 53.94414522457416,
+    longitude: 8.92711702982596,
   },
   {
-    "name": "53.94, 10.45",
-    "latitude": 53.94414522457416,
-    "longitude": 10.454865932464685
+    name: "53.94, 10.45",
+    latitude: 53.94414522457416,
+    longitude: 10.454865932464685,
   },
   {
-    "name": "53.94, 11.98",
-    "latitude": 53.94414522457416,
-    "longitude": 11.982614835103409
+    name: "53.94, 11.98",
+    latitude: 53.94414522457416,
+    longitude: 11.982614835103409,
   },
   {
-    "name": "53.94, 13.51",
-    "latitude": 53.94414522457416,
-    "longitude": 13.510363737742136
-  }
+    name: "53.94, 13.51",
+    latitude: 53.94414522457416,
+    longitude: 13.510363737742136,
+  },
 ];
 
 function buildWeatherGrid(): WeatherPoint[] {
@@ -309,7 +315,6 @@ function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
     longitude: points.map((point) => point.longitude.toFixed(4)).join(","),
-    // hourly: "temperature_2m,precipitation,snow_depth",
     daily: "temperature_2m_mean,precipitation_sum,snowfall_sum",
     temperature_unit: "celsius",
     timezone: "Europe/Berlin",
@@ -322,11 +327,11 @@ function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
 }
 
 type OpenMeteoLocationResponse = {
-  hourly?: {
+  daily?: {
     time?: string[];
-    temperature_2m?: Array<number | null>;
-    precipitation?: Array<number | null>;
-    snow_depth?: Array<number | null>;
+    temperature_2m_mean?: Array<number | null>;
+    precipitation_sum?: Array<number | null>;
+    snowfall_sum?: Array<number | null>;
   };
   reason?: string;
 };
@@ -357,33 +362,37 @@ export async function loadHistoricalTemperatures(
     throw new Error(failedLocation.reason);
   }
 
-  const currentHour = startOfCurrentHour();
-  const timeline = locations[0]?.hourly?.time ?? [];
+  const currentDay = startOfDay(startOfCurrentHour());
+  const timeline = locations[0]?.daily?.time ?? [];
   const hours = timeline
     .map((label, timeIndex) => {
-      const time = new Date(label);
+      const time = new Date(`${label}T12:00:00`);
       const temperature_2m = locations.map(
         (location) =>
-          location.hourly?.temperature_2m?.[timeIndex] ?? Number.NaN,
+          location.daily?.temperature_2m_mean?.[timeIndex] ?? Number.NaN,
       );
       const precipitation = locations.map(
         (location) =>
-          location.hourly?.precipitation?.[timeIndex] ?? Number.NaN,
+          location.daily?.precipitation_sum?.[timeIndex] ?? Number.NaN,
       );
       const snow_depth = locations.map(
-        (location) =>
-          location.hourly?.snow_depth?.[timeIndex] ?? Number.NaN,
+        (location) => location.daily?.snowfall_sum?.[timeIndex] ?? Number.NaN,
       );
       return { time, label, temperature_2m, precipitation, snow_depth };
     })
     .filter(
-      (hour) =>
-        hour.time >= start &&
-        hour.time <= end &&
-        hour.time <= currentHour &&
-        (hour.temperature_2m.some(Number.isFinite) ||
-          hour.precipitation.some(Number.isFinite) ||
-          hour.snow_depth.some(Number.isFinite)),
+      (hour) => {
+        const day = startOfDay(hour.time);
+
+        return (
+          day >= start &&
+          day <= end &&
+          day <= currentDay &&
+          (hour.temperature_2m.some(Number.isFinite) ||
+            hour.precipitation.some(Number.isFinite) ||
+            hour.snow_depth.some(Number.isFinite))
+        );
+      },
     );
 
   return {
@@ -442,7 +451,9 @@ export function buildTemperatureContours(
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      values.push(interpolateTemperature(x, y, projectedPoints, hour.temperature_2m));
+      values.push(
+        interpolateTemperature(x, y, projectedPoints, hour.temperature_2m),
+      );
     }
   }
 
@@ -463,7 +474,10 @@ export function buildTemperatureContours(
 export function buildTemperatureCells(
   dataset: WeatherDataset,
   hour: WeatherHour,
-  variableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m",
+  variableKey:
+    | "temperature_2m"
+    | "precipitation"
+    | "snow_depth" = "temperature_2m",
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
