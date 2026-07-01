@@ -1,6 +1,10 @@
 import * as d3 from "d3";
 
 import { COLORS } from "../colors";
+import circleStationIcon from "../images/icons/circle-filled.svg";
+import squareStationIcon from "../images/icons/square-filled.svg";
+import starStationIcon from "../images/icons/star-filled.svg";
+import triangleStationIcon from "../images/icons/triangle-filled.svg";
 import { projection } from "./geo";
 
 export interface StationCsvColumns {
@@ -39,6 +43,32 @@ type DelaySummary = {
   region_name: string;
   date: string;
 };
+
+function stationIconForQuayCount(quayCount: number) {
+  if (Number.isFinite(quayCount) && quayCount >= 1 && quayCount <= 4) {
+    return circleStationIcon;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
+    return squareStationIcon;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount > 19) {
+    return starStationIcon;
+  }
+
+  return triangleStationIcon;
+}
+
+function opacityForStationFill(fill: string) {
+  const hexAlpha = fill.match(/^#[\da-f]{8}$/i)?.[0].slice(7, 9);
+
+  if (!hexAlpha) {
+    return 1;
+  }
+
+  return Number.parseInt(hexAlpha, 16) / 255;
+}
 
 function parseCsvBoolean(value: string | undefined) {
   return value === "true" || value === "1";
@@ -114,14 +144,22 @@ export function appendTrainStations(
   radius = 0.5,
   fill = COLORS.TRAINS.STATIONS,
 ) {
+  const iconSize = radius * 2.4;
+  const iconOpacity = opacityForStationFill(fill);
+
   return g
-    .selectAll("circle")
+    .selectAll<SVGImageElement, Station>("image.train-station-icon")
     .data(visibleStations, (d) => (d as Station).name)
-    .join("circle")
-    .attr("cx", (d) => projection(d.coords as [number, number])![0])
-    .attr("cy", (d) => projection(d.coords as [number, number])![1])
-    .attr("r", radius)
-    .attr("fill", fill);
+    .join("image")
+    .attr("class", "train-station-icon")
+    .attr("href", (d) => stationIconForQuayCount(d.quay_count))
+    .attr("x", (d) => projection(d.coords as [number, number])![0] - iconSize / 2)
+    .attr("y", (d) => projection(d.coords as [number, number])![1] - iconSize / 2)
+    .attr("width", iconSize)
+    .attr("height", iconSize)
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .attr("opacity", iconOpacity)
+    .attr("data-station-opacity", iconOpacity);
 }
 
 export async function loadIcStations() {

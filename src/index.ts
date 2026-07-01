@@ -534,7 +534,12 @@ function renderTrainNetwork() {
     stationFill,
   )
     .on("mouseenter", function (_, d) {
-      d3.select(this).attr("fill", COLORS.MAP.HIGHLIGHT);
+      d3.select(this)
+        .attr("opacity", 1)
+        .style(
+          "filter",
+          "brightness(0) saturate(100%) invert(83%) sepia(94%) saturate(1058%) hue-rotate(358deg) brightness(101%) contrast(106%)",
+        );
       const locationParts = [d.state, d.region].filter(Boolean);
       tooltip
         .style("display", "block")
@@ -550,7 +555,9 @@ function renderTrainNetwork() {
         .style("top", `${event.pageY + 10}px`);
     })
     .on("mouseleave", function () {
-      d3.select(this).attr("fill", stationFill);
+      d3.select(this)
+        .attr("opacity", this.getAttribute("data-station-opacity") ?? 1)
+        .style("filter", null);
       tooltip.style("display", "none");
     });
 }
