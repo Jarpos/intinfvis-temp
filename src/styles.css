@@ -29,31 +29,12 @@
         pointer-events: none;
     }
 
-    .weather-chip,
     .weather-legend,
     .weather-timeline {
         background: rgba(18, 28, 24, 0.78);
         border: 1px solid rgba(255, 255, 255, 0.14);
         box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
         backdrop-filter: blur(10px);
-    }
-
-    .weather-chip {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        height: 34px;
-        padding: 0 12px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 700;
-        pointer-events: auto;
-    }
-
-    .weather-chip span:last-child {
-        color: rgba(247, 251, 255, 0.62);
-        font-size: 12px;
-        font-weight: 600;
     }
 
     .weather-dropdown-container {

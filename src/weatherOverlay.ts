@@ -2,7 +2,11 @@ import * as d3 from "d3";
 
 import { COLORS } from "./colors";
 import { HEIGHT, WIDTH, tooltip } from "./config";
-import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
+import {
+  DEFAULT_DATE_RANGE,
+  SELECTED_DATE_CHANGE_EVENT,
+  WEATHER_DATE_PREVIEW_EVENT,
+} from "./dateSync";
 import type { SelectedDateChangeDetail } from "./dateSync";
 import {
   TEMPERATURE_RANGE,
@@ -33,6 +37,11 @@ type WeatherOverlay = {
   currentCells: TemperatureCell[];
 };
 
+export type WeatherOverlayController = {
+  showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
+  hideTooltip: () => void;
+};
+
 const formatTime = new Intl.DateTimeFormat("de-DE", {
   weekday: "short",
   day: "2-digit",
@@ -47,21 +56,17 @@ function createLegend() {
   const panel = document.createElement("div");
   panel.className = "weather-panel";
 
-  const model = document.createElement("div");
-  model.className = "weather-chip";
-  model.innerHTML = "<span>DWD ICON-D2</span><span>historic</span>";
-
   const dropdownContainer = document.createElement("div");
   dropdownContainer.className = "weather-dropdown-container";
-  
+
   const trigger = document.createElement("button");
   trigger.type = "button";
   trigger.className = "weather-dropdown-trigger";
   trigger.textContent = "Temperature";
-  
+
   const menu = document.createElement("ul");
   menu.className = "weather-dropdown-menu";
-  
+
   const options = [
     { value: "temperature_2m", label: "Temperature" },
     { value: "precipitation", label: "Precipitation" },
@@ -77,12 +82,12 @@ function createLegend() {
     }
     menu.append(item);
   });
-  
+
   dropdownContainer.append(trigger, menu);
 
   const legend = document.createElement("div");
   legend.className = "weather-legend";
-  
+
   const legendTitle = document.createElement("div");
   legendTitle.className = "weather-legend-title";
 
@@ -97,7 +102,7 @@ function createLegend() {
 
   scale.append(gradient, legendTicks);
   legend.append(legendTitle, scale);
-  panel.append(model, dropdownContainer, legend);
+  panel.append(dropdownContainer, legend);
   document.body.append(panel);
 
   trigger.addEventListener("click", (event) => {
@@ -118,8 +123,10 @@ function createLegend() {
         });
         item.classList.add("is-selected");
         trigger.textContent = item.textContent;
-        
-        const changeEvent = new CustomEvent("change", { detail: { value: val } });
+
+        const changeEvent = new CustomEvent("change", {
+          detail: { value: val },
+        });
         dropdownContainer.dispatchEvent(changeEvent);
       }
     });
@@ -138,7 +145,8 @@ function updateLegend(
 
   config.ticks.forEach((tickVal) => {
     const span = document.createElement("span");
-    span.textContent = config.key === "snow_depth" ? tickVal.toFixed(1) : tickVal.toFixed(0);
+    span.textContent =
+      config.key === "snow_depth" ? tickVal.toFixed(1) : tickVal.toFixed(0);
     legendTicks.append(span);
   });
 }
@@ -318,14 +326,54 @@ function hourIndexFromPointer(
   return Math.round(ratio * (hours.length - 1));
 }
 
+function buildRenderableCells(
+  dataset: WeatherDataset,
+  index: number,
+  variableKey: "temperature_2m" | "precipitation" | "snow_depth",
+) {
+  const selectedCells = buildTemperatureCells(
+    dataset,
+    dataset.hours[index],
+    variableKey,
+  );
+
+  if (selectedCells.length > 0) {
+    return selectedCells;
+  }
+
+  for (let distance = 1; distance < dataset.hours.length; distance += 1) {
+    const fallbackIndexes = [index - distance, index + distance].filter(
+      (fallbackIndex) =>
+        fallbackIndex >= 0 && fallbackIndex < dataset.hours.length,
+    );
+
+    for (const fallbackIndex of fallbackIndexes) {
+      const fallbackCells = buildTemperatureCells(
+        dataset,
+        dataset.hours[fallbackIndex],
+        variableKey,
+      );
+
+      if (fallbackCells.length > 0) {
+        return fallbackCells;
+      }
+    }
+  }
+
+  return selectedCells;
+}
+
 function renderHour(
   overlay: WeatherOverlay,
   dataset: WeatherDataset,
   index: number,
-  variableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m",
+  variableKey:
+    | "temperature_2m"
+    | "precipitation"
+    | "snow_depth" = "temperature_2m",
 ) {
   const hour = dataset.hours[index];
-  const cells = buildTemperatureCells(dataset, hour, variableKey);
+  const cells = buildRenderableCells(dataset, index, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
   overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
@@ -348,9 +396,7 @@ function renderHour(
     .attr("width", (d) => d.size)
     .attr("height", (d) => d.size)
     .attr("fill", (d) => temperatureColor(d.temperature))
-    .attr("data-temperature", (d) =>
-      d.rawValue.toFixed(1),
-    )
+    .attr("data-temperature", (d) => d.rawValue.toFixed(1))
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
 
@@ -373,6 +419,16 @@ function dispatchSelectedDateChange(
   );
 }
 
+function dispatchWeatherDatePreview(selectedDate: Date) {
+  document.dispatchEvent(
+    new CustomEvent(WEATHER_DATE_PREVIEW_EVENT, {
+      detail: {
+        selected: toDateInputValue(selectedDate),
+      },
+    }),
+  );
+}
+
 function bindTooltip(
   layer: d3.Selection<SVGGElement, undefined, null, undefined>,
   overlay: WeatherOverlay,
@@ -389,7 +445,11 @@ function bindTooltip(
           y < candidate.y + candidate.size,
       );
 
-      if (cell && typeof cell.rawValue === "number" && Number.isFinite(cell.rawValue)) {
+      if (
+        cell &&
+        typeof cell.rawValue === "number" &&
+        Number.isFinite(cell.rawValue)
+      ) {
         const config = getVariableConfig();
         tooltip
           .style("display", "block")
@@ -406,10 +466,11 @@ function bindTooltip(
 
 export async function appendWeatherOverlay(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-) {
+): Promise<WeatherOverlayController> {
   const { dropdown, legendTitle, legendTicks } = createLegend();
 
-  let activeVariableKey: "temperature_2m" | "precipitation" | "snow_depth" = "temperature_2m";
+  let activeVariableKey: "temperature_2m" | "precipitation" | "snow_depth" =
+    "temperature_2m";
   updateLegend(legendTitle, legendTicks, WEATHER_VARIABLES[activeVariableKey]);
 
   const controls = createTimeline();
@@ -427,7 +488,9 @@ export async function appendWeatherOverlay(
   const clipId = "weather-germany-clip";
 
   dropdown.addEventListener("change", (event: Event) => {
-    const customEvent = event as CustomEvent<{ value: "temperature_2m" | "precipitation" | "snow_depth" }>;
+    const customEvent = event as CustomEvent<{
+      value: "temperature_2m" | "precipitation" | "snow_depth";
+    }>;
     const val = customEvent.detail.value;
     if (WEATHER_VARIABLES[val]) {
       activeVariableKey = val;
@@ -435,7 +498,12 @@ export async function appendWeatherOverlay(
       updateLegend(legendTitle, legendTicks, config);
 
       if (activeDataset && renderedHourIndex !== -1) {
-        renderHour(overlay, activeDataset, renderedHourIndex, activeVariableKey);
+        renderHour(
+          overlay,
+          activeDataset,
+          renderedHourIndex,
+          activeVariableKey,
+        );
       }
     }
   });
@@ -529,6 +597,7 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${index}`;
     renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
+    dispatchWeatherDatePreview(activeDataset.hours[index].time);
   };
 
   const commitHour = (index: number) => {
@@ -561,6 +630,7 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${selectedHourIndex}`;
     renderHour(overlay, activeDataset, selectedHourIndex, activeVariableKey);
     renderedHourIndex = selectedHourIndex;
+    dispatchWeatherDatePreview(activeDataset.hours[selectedHourIndex].time);
   };
 
   const previewFromPointer = (event: MouseEvent) => {
@@ -647,4 +717,36 @@ export async function appendWeatherOverlay(
   } catch (error) {
     showWeatherError(error);
   }
+
+  return {
+    showTooltipAtPoint: (event, [x, y]) => {
+      const cell = overlay.currentCells.find(
+        (candidate) =>
+          x >= candidate.x &&
+          x < candidate.x + candidate.size &&
+          y >= candidate.y &&
+          y < candidate.y + candidate.size,
+      );
+
+      if (
+        !cell ||
+        typeof cell.rawValue !== "number" ||
+        !Number.isFinite(cell.rawValue)
+      ) {
+        tooltip.style("display", "none");
+        return false;
+      }
+
+      const config = WEATHER_VARIABLES[activeVariableKey];
+      tooltip
+        .style("display", "block")
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY + 10}px`)
+        .style("background", COLORS.TOOLTIP.BACKGROUND)
+        .text(`${cell.rawValue.toFixed(1)} ${config.unit}`);
+
+      return true;
+    },
+    hideTooltip: () => tooltip.style("display", "none"),
+  };
 }

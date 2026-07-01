@@ -7,14 +7,22 @@ import {
   appendTrainStrecken,
   appendTrainStations,
   localStations,
-  stations,
+  icStations,
+  loadDelayConnections,
 } from "./data/bahn";
-import type { Station } from "./data/bahn";
+import type { Connection, DelayDateRange, Station } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
-import { DEFAULT_DATE_RANGE, SELECTED_DATE_CHANGE_EVENT } from "./dateSync";
-import type { SelectedDateChangeDetail } from "./dateSync";
+import {
+  DEFAULT_DATE_RANGE,
+  SELECTED_DATE_CHANGE_EVENT,
+  WEATHER_DATE_PREVIEW_EVENT,
+} from "./dateSync";
+import type {
+  SelectedDateChangeDetail,
+  WeatherDatePreviewDetail,
+} from "./dateSync";
 
 const g = map_svg.append("g");
 const LOCAL_STATIONS_ZOOM_LEVEL = 2;
@@ -23,18 +31,15 @@ let focusedState: string | null = null;
 let isClickFocusing = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
+let trainConnections: Connection[] = [];
+let trainDelayRequestKey = "";
+let trainDelayLoadToken = 0;
+let selectedDelayRange: DelayDateRange = {
+  from: formatDateInputValue(DEFAULT_DATE_RANGE.from),
+  to: formatDateInputValue(DEFAULT_DATE_RANGE.to),
+};
 const allStationNames = new Set(localStations.map((station) => station.name));
 const selectedStationNames = new Set(allStationNames);
-const stationCountByState = d3.rollup(
-  localStations,
-  (stateStations) => stateStations.length,
-  (station) => station.state ?? "Unknown",
-);
-const stationCountByRegion = d3.rollup(
-  localStations,
-  (regionStations) => regionStations.length,
-  (station) => regionKey(station.state, station.region) ?? "Unknown",
-);
 const geoPath = d3.geoPath(projection);
 
 function regionKey(state?: string | null, region?: string | null) {
@@ -43,81 +48,17 @@ function regionKey(state?: string | null, region?: string | null) {
 
 function stateName(feature: GeoJSON.Feature) {
   return (
-    (feature.properties as { NAME_1?: string; name?: string } | null)
-      ?.NAME_1 ??
+    (feature.properties as { NAME_1?: string; name?: string } | null)?.NAME_1 ??
     (feature.properties as { NAME_1?: string; name?: string } | null)?.name ??
     "Unknown"
   );
-}
-
-function regionName(feature: GeoJSON.Feature) {
-  return (
-    (feature.properties as { NAME_2?: string } | null)?.NAME_2 ?? "Unknown"
-  );
-}
-
-function showStateTooltip(event: MouseEvent, state: string) {
-  const stationCount = stationCountByState.get(state) ?? 0;
-
-  tooltip
-    .style("display", "block")
-    .style("background", "rgba(255, 255, 255, 0.96)")
-    .style("border", "1px solid rgba(15, 23, 42, 0.16)")
-    .style("border-radius", "12px")
-    .style("box-shadow", "0 18px 38px rgba(15, 23, 42, 0.18)")
-    .style("padding", "14px 16px")
-    .style("min-width", "220px")
-    .style("color", "#1f2937")
-    .style("font-family", "Inter, ui-sans-serif, system-ui, sans-serif")
-    .style("left", `${event.pageX + 16}px`)
-    .style("top", `${event.pageY + 16}px`)
-    .html(
-      [
-        `<div style="font-size: 18px; font-weight: 800; margin-bottom: 10px;">${state}</div>`,
-        `<div style="display: grid; grid-template-columns: 1fr auto; gap: 6px 18px; font-size: 15px;">`,
-        `<span style="color: #6b7280;">Stations</span>`,
-        `<strong>${stationCount.toLocaleString("de-DE")}</strong>`,
-        `</div>`,
-      ].join(""),
-    );
-}
-
-function showRegionTooltip(event: MouseEvent, state: string, region: string) {
-  const stationCount =
-    stationCountByRegion.get(regionKey(state, region) ?? "Unknown") ?? 0;
-
-  tooltip
-    .style("display", "block")
-    .style("background", "rgba(255, 255, 255, 0.96)")
-    .style("border", "1px solid rgba(15, 23, 42, 0.16)")
-    .style("border-radius", "12px")
-    .style("box-shadow", "0 18px 38px rgba(15, 23, 42, 0.18)")
-    .style("padding", "14px 16px")
-    .style("min-width", "240px")
-    .style("color", "#1f2937")
-    .style("font-family", "Inter, ui-sans-serif, system-ui, sans-serif")
-    .style("left", `${event.pageX + 16}px`)
-    .style("top", `${event.pageY + 16}px`)
-    .html(
-      [
-        `<div style="font-size: 18px; font-weight: 800; margin-bottom: 4px;">${region}</div>`,
-        `<div style="font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 10px;">${state}</div>`,
-        `<div style="display: grid; grid-template-columns: 1fr auto; gap: 6px 18px; font-size: 15px;">`,
-        `<span style="color: #6b7280;">Stations</span>`,
-        `<strong>${stationCount.toLocaleString("de-DE")}</strong>`,
-        `</div>`,
-      ].join(""),
-    );
 }
 
 function coordinateKey([longitude, latitude]: GeoJSON.Position) {
   return `${longitude.toFixed(5)},${latitude.toFixed(5)}`;
 }
 
-function edgeKey(
-  start: GeoJSON.Position,
-  end: GeoJSON.Position,
-) {
+function edgeKey(start: GeoJSON.Position, end: GeoJSON.Position) {
   const startKey = coordinateKey(start);
   const endKey = coordinateKey(end);
 
@@ -172,7 +113,10 @@ function addFeatureEdges(
 function buildStateBoundaryPaths() {
   const edgesByState = new Map<
     string,
-    Map<string, { start: GeoJSON.Position; end: GeoJSON.Position; count: number }>
+    Map<
+      string,
+      { start: GeoJSON.Position; end: GeoJSON.Position; count: number }
+    >
   >();
 
   geojson.features.forEach((feature) => {
@@ -208,13 +152,11 @@ function buildStateBoundaryPaths() {
 const germanyAreas = appendGermany(g);
 
 // Hourly historic temperature map
-appendWeatherOverlay(g);
+const weatherOverlay = await appendWeatherOverlay(g);
 
 const stateHoverLayer = g
   .append("g")
   .attr("aria-label", "Bundesland hover layer");
-type ViewMode = "temperature" | "stations";
-let activeViewMode: ViewMode = "temperature";
 const stateHoverAreas = stateHoverLayer
   .selectAll("path")
   .data(geojson.features)
@@ -231,10 +173,12 @@ const stateBoundaryLayer = g
   .attr("pointer-events", "none");
 const stateBoundaryAreas = stateBoundaryLayer
   .selectAll("path")
-  .data(Array.from(stateBoundaryPaths, ([state, pathData]) => ({
-    state,
-    pathData,
-  })))
+  .data(
+    Array.from(stateBoundaryPaths, ([state, pathData]) => ({
+      state,
+      pathData,
+    })),
+  )
   .join("path")
   .attr("d", (d) => d.pathData)
   .attr("fill", "none")
@@ -259,20 +203,10 @@ stateHoverAreas
       .raise();
   })
   .on("mousemove", (event, d) => {
-    const state = stateName(d);
-
-    if (focusedState) {
-      showRegionTooltip(event, state, regionName(d));
-      return;
-    }
-
-    showStateTooltip(event, state);
+    const point = d3.pointer(event, g.node()) as [number, number];
+    weatherOverlay.showTooltipAtPoint(event, point);
   })
   .on("click", (event, d) => {
-    if (activeViewMode !== "stations") {
-      return;
-    }
-
     event.stopPropagation();
     isClickFocusing = true;
     focusState(stateName(d), true);
@@ -293,7 +227,7 @@ stateHoverAreas
     tooltip.style("display", "none");
   });
 
-const trainLinesLayer = g.append("g");
+const trainLinesLayer = g.append("g").attr("pointer-events", "none");
 const trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
 
@@ -302,7 +236,7 @@ function featuresForState(state: string) {
 }
 
 function updateMapVisibility() {
-  const isStateFocused = activeViewMode === "stations" && !!focusedState;
+  const isStateFocused = !!focusedState;
 
   germanyAreas.style("display", (feature) =>
     !isStateFocused || stateName(feature) === focusedState ? "" : "none",
@@ -417,10 +351,7 @@ function stateAtScreenPoint(point: [number, number]) {
   return containingFeature ? stateName(containingFeature) : null;
 }
 
-function regionBoundsIntersectViewport(
-  feature: GeoJSON.Feature,
-  padding = 64,
-) {
+function regionBoundsIntersectViewport(feature: GeoJSON.Feature, padding = 64) {
   const [[minX, minY], [maxX, maxY]] = geoPath.bounds(feature);
   const screenMinX = currentZoomTransform.applyX(minX);
   const screenMaxX = currentZoomTransform.applyX(maxX);
@@ -443,9 +374,10 @@ function visibleRegionKeys() {
       return;
     }
 
-    const properties = feature.properties as
-      | { NAME_1?: string; NAME_2?: string }
-      | null;
+    const properties = feature.properties as {
+      NAME_1?: string;
+      NAME_2?: string;
+    } | null;
     const key = regionKey(properties?.NAME_1, properties?.NAME_2);
 
     if (key) {
@@ -470,14 +402,89 @@ function stationIsInViewport(station: Station) {
   return screenX >= 0 && screenX <= WIDTH && screenY >= 0 && screenY <= HEIGHT;
 }
 
+function mergeStationsByEva(...stationGroups: Station[][]) {
+  const stationsByEva = new Map<number, Station>();
+
+  stationGroups.flat().forEach((station) => {
+    if (!stationsByEva.has(station.eva)) {
+      stationsByEva.set(station.eva, station);
+    }
+  });
+
+  return Array.from(stationsByEva.values());
+}
+
+function delayRegionsForFocusedState() {
+  if (!focusedState) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      localStations
+        .filter((station) => station.state === focusedState)
+        .map((station) => station.region)
+        .filter((region): region is string => !!region),
+    ),
+  ).sort();
+}
+
+function trainDelayKey(range: DelayDateRange, regionNames: string[]) {
+  return [range.from, range.to, ...regionNames].join("|");
+}
+
+function setTrainDelayRange(range: DelayDateRange) {
+  if (
+    selectedDelayRange.from === range.from &&
+    selectedDelayRange.to === range.to
+  ) {
+    return;
+  }
+
+  selectedDelayRange = range;
+  trainDelayRequestKey = "";
+  renderTrainNetwork();
+}
+
+function requestTrainDelayConnections() {
+  const regionNames = delayRegionsForFocusedState();
+  const requestKey = trainDelayKey(selectedDelayRange, regionNames);
+
+  if (requestKey === trainDelayRequestKey) {
+    return;
+  }
+
+  trainDelayRequestKey = requestKey;
+  trainConnections = [];
+
+  const requestToken = ++trainDelayLoadToken;
+
+  loadDelayConnections(selectedDelayRange, regionNames)
+    .then((connections) => {
+      if (requestToken !== trainDelayLoadToken) {
+        return;
+      }
+
+      trainConnections = connections;
+      renderTrainNetwork();
+    })
+    .catch((error) => {
+      if (requestToken !== trainDelayLoadToken) {
+        return;
+      }
+
+      console.error("Failed to load train delay data", error);
+    });
+}
+
 function renderTrainNetwork() {
-  const shouldShowLocalStations =
-    currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL;
-  const stationSource = shouldShowLocalStations ? localStations : stations;
+  requestTrainDelayConnections();
+
+  const shouldShowLocalStations = !!focusedState;
   const localVisibleRegionKeys = shouldShowLocalStations
     ? visibleRegionKeys()
     : null;
-  const visibleStations = stationSource.filter((station) => {
+  const visibleIcStations = icStations.filter((station) => {
     if (!selectedStationNames.has(station.name)) {
       return false;
     }
@@ -486,18 +493,31 @@ function renderTrainNetwork() {
       return false;
     }
 
-    if (!shouldShowLocalStations) {
-      return true;
-    }
-
-    const key = regionKey(station.state, station.region);
-
-    if (!key || !localVisibleRegionKeys?.has(key)) {
-      return false;
-    }
-
-    return stationIsInViewport(station);
+    return true;
   });
+  const visibleLocalStations = shouldShowLocalStations
+    ? localStations.filter((station) => {
+        if (!selectedStationNames.has(station.name)) {
+          return false;
+        }
+
+        if (station.state !== focusedState) {
+          return false;
+        }
+
+        const key = regionKey(station.state, station.region);
+
+        if (!key || !localVisibleRegionKeys?.has(key)) {
+          return false;
+        }
+
+        return stationIsInViewport(station);
+      })
+    : [];
+  const visibleStations = mergeStationsByEva(
+    visibleIcStations,
+    visibleLocalStations,
+  );
   const visibleStationNames = new Set(
     visibleStations.map((station) => station.name),
   );
@@ -506,7 +526,7 @@ function renderTrainNetwork() {
     ? COLORS.TRAINS.STATIONS
     : "#0f172a";
 
-  appendTrainStrecken(trainLinesLayer, visibleStationNames);
+  appendTrainStrecken(trainLinesLayer, trainConnections, visibleStationNames);
   appendTrainStations(
     trainStationsLayer,
     visibleStations,
@@ -514,7 +534,12 @@ function renderTrainNetwork() {
     stationFill,
   )
     .on("mouseenter", function (_, d) {
-      d3.select(this).attr("fill", COLORS.MAP.HIGHLIGHT);
+      d3.select(this)
+        .attr("opacity", 1)
+        .style(
+          "filter",
+          "brightness(0) saturate(100%) invert(83%) sepia(94%) saturate(1058%) hue-rotate(358deg) brightness(101%) contrast(106%)",
+        );
       const locationParts = [d.state, d.region].filter(Boolean);
       tooltip
         .style("display", "block")
@@ -530,7 +555,9 @@ function renderTrainNetwork() {
         .style("top", `${event.pageY + 10}px`);
     })
     .on("mouseleave", function () {
-      d3.select(this).attr("fill", COLORS.TRAINS.STATIONS);
+      d3.select(this)
+        .attr("opacity", this.getAttribute("data-station-opacity") ?? 1)
+        .style("filter", null);
       tooltip.style("display", "none");
     });
 }
@@ -552,80 +579,21 @@ function setElementDisplay(selector: string, visible: boolean) {
   });
 }
 
-function applyViewMode(mode: ViewMode) {
-  activeViewMode = mode;
-  const showTemperature = mode === "temperature";
-  const showStations = mode === "stations";
-
-  setElementDisplay(".weather-panel, .weather-timeline", showTemperature);
+function applyTemperatureView() {
+  setElementDisplay(".weather-panel, .weather-timeline", true);
   d3.selectAll<SVGGElement, unknown>(
     ".weather-overlay-layer, .weather-boundary-layer",
-  ).style("display", showTemperature ? "" : "none");
+  ).style("display", "");
 
-  trainLinesLayer.style(
-    "display",
-    showTemperature || showStations ? "" : "none",
-  );
-  trainStationsLayer.style("display", showStations ? "" : "none");
-  stateHoverLayer
-    .style("display", showStations ? "" : "none")
-    .style("pointer-events", showStations ? "all" : "none");
-  stateBoundaryLayer.style("display", showStations ? "" : "none");
+  trainLinesLayer.style("display", "");
+  trainStationsLayer.style("display", "");
+  stateHoverLayer.style("display", "").style("pointer-events", "all");
+  stateBoundaryLayer.style("display", "");
   updateMapVisibility();
 
   tooltip.style("display", "none");
 
   renderTrainNetwork();
-}
-
-function setupViewModeControl() {
-  const control = document.createElement("label");
-  control.className = "view-mode-control";
-  control.style.position = "fixed";
-  control.style.top = "16px";
-  control.style.left = "50%";
-  control.style.transform = "translateX(-50%)";
-  control.style.zIndex = "40";
-  control.style.display = "flex";
-  control.style.alignItems = "center";
-  control.style.gap = "10px";
-  control.style.border = "1px solid rgba(15, 23, 42, 0.14)";
-  control.style.borderRadius = "8px";
-  control.style.background = "rgba(255, 255, 255, 0.94)";
-  control.style.boxShadow = "0 12px 28px rgba(15, 23, 42, 0.14)";
-  control.style.padding = "8px 10px";
-  control.style.color = "#334155";
-  control.style.font = "700 13px Inter, ui-sans-serif, system-ui, sans-serif";
-
-  const text = document.createElement("span");
-  text.textContent = "View";
-
-  const select = document.createElement("select");
-  select.value = activeViewMode;
-  select.style.height = "32px";
-  select.style.border = "1px solid #cbd5e1";
-  select.style.borderRadius = "6px";
-  select.style.background = "#ffffff";
-  select.style.padding = "0 28px 0 8px";
-  select.style.color = "#0f172a";
-  select.style.font = "700 13px Inter, ui-sans-serif, system-ui, sans-serif";
-
-  [
-    ["temperature", "Temperature"],
-    ["stations", "Station count"],
-  ].forEach(([value, label]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    select.append(option);
-  });
-
-  select.addEventListener("change", () => {
-    applyViewMode(select.value as ViewMode);
-  });
-
-  control.append(text, select);
-  document.body.append(control);
 }
 
 function getRequiredElement<T extends HTMLElement>(selector: string) {
@@ -646,60 +614,249 @@ function setupStationFilterPanel() {
     "#select-all-stations",
   );
   const clearButton = getRequiredElement<HTMLButtonElement>("#clear-stations");
+  let selectedState: string | null = null;
+  let selectedRegion: string | null = null;
+
+  function stationState(station: Station) {
+    return station.state ?? "Unknown";
+  }
+
+  function stationRegion(station: Station) {
+    return station.region ?? "Unknown";
+  }
+
+  function sortByName<T extends { name: string }>(items: T[]) {
+    return items.sort((left, right) =>
+      left.name.localeCompare(right.name, "de-DE"),
+    );
+  }
+
+  function stationsForCurrentRegion() {
+    return localStations.filter(
+      (station) =>
+        stationState(station) === selectedState &&
+        stationRegion(station) === selectedRegion,
+    );
+  }
+
+  function makeDrillRow(
+    label: string,
+    count: number,
+    onClick: () => void,
+    secondaryLabel?: string,
+  ) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = [
+      "grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-md px-2 py-2 text-left",
+      "text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-300",
+    ].join(" ");
+    button.addEventListener("click", onClick);
+
+    const textWrap = document.createElement("span");
+    textWrap.className = "min-w-0";
+
+    const title = document.createElement("span");
+    title.className = "block truncate text-sm font-semibold";
+    title.textContent = label;
+    textWrap.append(title);
+
+    if (secondaryLabel) {
+      const subtitle = document.createElement("span");
+      subtitle.className = "block truncate text-xs font-medium text-slate-400";
+      subtitle.textContent = secondaryLabel;
+      textWrap.append(subtitle);
+    }
+
+    const badge = document.createElement("span");
+    badge.className =
+      "rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500";
+    badge.textContent = count.toLocaleString("de-DE");
+
+    button.append(textWrap, badge);
+    return button;
+  }
+
+  function makeBackButton(label: string, onClick: () => void) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      "mb-2 rounded-md px-2 py-1 text-sm font-semibold text-sky-700 transition hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-300";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function appendStationCheckbox(station: Station, showLocation = false) {
+    const label = document.createElement("label");
+    label.className = [
+      "flex cursor-pointer items-start gap-3 rounded-md px-1 py-2 text-base font-semibold",
+      "text-slate-600 transition hover:bg-slate-50",
+    ].join(" ");
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedStationNames.has(station.name);
+    checkbox.className = [
+      "mt-0.5 h-6 w-6 rounded border-slate-300 accent-sky-600",
+      "focus:ring-2 focus:ring-sky-300",
+    ].join(" ");
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        selectedStationNames.add(station.name);
+      } else {
+        selectedStationNames.delete(station.name);
+      }
+
+      renderTrainNetwork();
+      renderStationList();
+    });
+
+    const textWrap = document.createElement("span");
+    textWrap.className = "min-w-0";
+
+    const name = document.createElement("span");
+    name.className = "block truncate";
+    name.textContent = station.name;
+    textWrap.append(name);
+
+    if (showLocation) {
+      const location = document.createElement("span");
+      location.className = "block truncate text-xs font-medium text-slate-400";
+      location.textContent = [
+        stationState(station),
+        stationRegion(station),
+      ].join(", ");
+      textWrap.append(location);
+    }
+
+    label.append(checkbox, textWrap);
+    list.append(label);
+  }
 
   function renderStationList() {
     const query = searchInput.value.trim().toLowerCase();
-    const visibleStations = localStations.filter((station) =>
-      station.name.toLowerCase().includes(query),
-    );
 
     countText.textContent = `${selectedStationNames.size} of ${allStationNames.size} selected`;
     list.replaceChildren();
 
-    //Limited the number of rendered DOM elements in the station checkbox list to 200 (from ~10,000+) to ensure the UI remains responsive even when the user searches for common terms that match many stations. Added a message indicating how many stations are not shown and encouraging users to refine their search for better results.
-    const renderLimit = 200;
-    const stationsToRender = visibleStations.slice(0, renderLimit);
+    if (query) {
+      const visibleStations = sortByName(
+        localStations.filter((station) =>
+          station.name.toLowerCase().includes(query),
+        ),
+      );
 
-    stationsToRender.forEach((station) => {
-      const label = document.createElement("label");
-      label.className = [
-        "flex cursor-pointer items-center gap-3 rounded-md px-1 py-2 text-base font-semibold",
-        "text-slate-600 transition hover:bg-slate-50",
-      ].join(" ");
+      countText.textContent = `Search results - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+      visibleStations.forEach((station) =>
+        appendStationCheckbox(station, true),
+      );
 
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = selectedStationNames.has(station.name);
-      checkbox.className = [
-        "h-6 w-6 rounded border-slate-300 accent-sky-600",
-        "focus:ring-2 focus:ring-sky-300",
-      ].join(" ");
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) {
-          selectedStationNames.add(station.name);
-        } else {
-          selectedStationNames.delete(station.name);
-        }
+      if (visibleStations.length === 0) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "px-1 py-6 text-sm font-medium text-slate-400";
+        emptyState.textContent = "No stations found.";
+        list.append(emptyState);
+      }
 
-        renderTrainNetwork();
-        renderStationList();
+      return;
+    }
+
+    if (!selectedState) {
+      const stateRows = sortByName(
+        Array.from(
+          d3.rollup(
+            localStations,
+            (stateStations) => stateStations.length,
+            stationState,
+          ),
+          ([name, count]) => ({ name, count }),
+        ),
+      );
+
+      stateRows.forEach(({ name, count }) => {
+        list.append(
+          makeDrillRow(name, count, () => {
+            selectedState = name;
+            selectedRegion = null;
+            focusState(name, true);
+            renderStationList();
+          }),
+        );
       });
 
-      const name = document.createElement("span");
-      name.textContent = station.name;
+      if (stateRows.length === 0) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "px-1 py-6 text-sm font-medium text-slate-400";
+        emptyState.textContent = "No Bundesland found.";
+        list.append(emptyState);
+      }
 
-      label.append(checkbox, name);
-      list.append(label);
-    });
-
-    if (visibleStations.length > renderLimit) {
-      const remainingCount = visibleStations.length - renderLimit;
-      const truncationMessage = document.createElement("div");
-      truncationMessage.className =
-        "px-1 py-3 text-xs font-semibold text-slate-400 text-center border-t border-slate-100 mt-2";
-      truncationMessage.textContent = `... and ${remainingCount.toLocaleString()} more. Refine your search to find specific stations.`;
-      list.append(truncationMessage);
+      return;
     }
+
+    if (!selectedRegion) {
+      list.append(
+        makeBackButton("Back to Bundesland", () => {
+          selectedState = null;
+          selectedRegion = null;
+          focusState(null, false);
+          renderStationList();
+        }),
+      );
+
+      const stateStations = localStations.filter(
+        (station) => stationState(station) === selectedState,
+      );
+      const regionRows = sortByName(
+        Array.from(
+          d3.rollup(
+            stateStations,
+            (regionStations) => regionStations.length,
+            stationRegion,
+          ),
+          ([name, count]) => ({ name, count }),
+        ),
+      );
+
+      countText.textContent = `${selectedState} - ${stateStations.length.toLocaleString("de-DE")} stations`;
+
+      regionRows.forEach(({ name, count }) => {
+        list.append(
+          makeDrillRow(
+            name,
+            count,
+            () => {
+              selectedRegion = name;
+              renderStationList();
+            },
+            selectedState ?? undefined,
+          ),
+        );
+      });
+
+      if (regionRows.length === 0) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "px-1 py-6 text-sm font-medium text-slate-400";
+        emptyState.textContent = "No Regierungsbezirk found.";
+        list.append(emptyState);
+      }
+
+      return;
+    }
+
+    list.append(
+      makeBackButton("Back to Regierungsbezirk", () => {
+        selectedRegion = null;
+        renderStationList();
+      }),
+    );
+
+    const visibleStations = sortByName(stationsForCurrentRegion());
+
+    countText.textContent = `${selectedRegion}, ${selectedState} - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+
+    visibleStations.forEach((station) => appendStationCheckbox(station));
 
     if (visibleStations.length === 0) {
       const emptyState = document.createElement("p");
@@ -750,32 +907,15 @@ function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
-function sameDay(left: Date, right: Date) {
-  return startOfDay(left).getTime() === startOfDay(right).getTime();
-}
-
-function addMonths(date: Date, offset: number) {
-  return new Date(date.getFullYear(), date.getMonth() + offset, 1);
-}
-
 function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   const fromInput = getRequiredElement<HTMLInputElement>("#from-date");
   const toInput = getRequiredElement<HTMLInputElement>("#to-date");
-  const monthLabel =
-    getRequiredElement<HTMLParagraphElement>("#calendar-month");
-  const calendarDays = getRequiredElement<HTMLDivElement>("#calendar-days");
-  const previousMonthButton =
-    getRequiredElement<HTMLButtonElement>("#previous-month");
-  const nextMonthButton = getRequiredElement<HTMLButtonElement>("#next-month");
 
-  const today = startOfDay(new Date());
   const initialFromDate = startOfDay(initialRange.from);
   const initialToDate = startOfDay(initialRange.to);
 
   let fromDate = initialFromDate;
   let toDate = initialToDate;
-  let activeBoundary: "from" | "to" = "from";
-  let displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
 
   function syncInputs() {
     fromInput.value = formatDateInputValue(fromDate);
@@ -783,6 +923,11 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   }
 
   function notifySelectedDateChange(selectedDate: Date) {
+    setTrainDelayRange({
+      from: formatDateInputValue(fromDate),
+      to: formatDateInputValue(toDate),
+    });
+
     document.dispatchEvent(
       new CustomEvent<SelectedDateChangeDetail>(SELECTED_DATE_CHANGE_EVENT, {
         detail: {
@@ -798,10 +943,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   function setDateRange(nextFromDate: Date, nextToDate: Date) {
     fromDate = startOfDay(nextFromDate);
     toDate = startOfDay(nextToDate);
-    displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
-    activeBoundary = "to";
     syncInputs();
-    renderCalendar();
   }
 
   function updateFromInput(value: string) {
@@ -817,9 +959,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       toDate = fromDate;
     }
 
-    displayedMonth = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
     syncInputs();
-    renderCalendar();
     notifySelectedDateChange(fromDate);
   }
 
@@ -836,97 +976,14 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       fromDate = toDate;
     }
 
-    displayedMonth = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
     syncInputs();
-    renderCalendar();
     notifySelectedDateChange(toDate);
   }
 
-  function renderCalendar() {
-    const monthFormatter = new Intl.DateTimeFormat("en", {
-      month: "long",
-      year: "numeric",
-    });
-    const year = displayedMonth.getFullYear();
-    const month = displayedMonth.getMonth();
-    const firstWeekdayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    monthLabel.textContent = monthFormatter.format(displayedMonth);
-    calendarDays.replaceChildren();
-
-    for (let index = 0; index < firstWeekdayOffset; index += 1) {
-      calendarDays.append(document.createElement("span"));
-    }
-
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day);
-      const isFromDate = sameDay(date, fromDate);
-      const isToDate = sameDay(date, toDate);
-      const isInRange = date > fromDate && date < toDate;
-      const isToday = sameDay(date, today);
-      const button = document.createElement("button");
-
-      button.type = "button";
-      button.textContent = String(day);
-      button.ariaLabel = `Select ${formatDateInputValue(date)}`;
-      button.className = [
-        "h-8 rounded-md text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-sky-300",
-        isFromDate || isToDate
-          ? "bg-sky-600 text-white hover:bg-sky-700"
-          : isInRange
-            ? "bg-sky-100 text-sky-800 hover:bg-sky-200"
-            : "bg-white text-slate-600 hover:bg-slate-100",
-        isToday && !isFromDate && !isToDate ? "ring-1 ring-sky-400" : "",
-      ].join(" ");
-
-      button.addEventListener("click", () => {
-        if (activeBoundary === "from") {
-          fromDate = date;
-
-          if (fromDate > toDate) {
-            toDate = fromDate;
-          }
-
-          activeBoundary = "to";
-          notifySelectedDateChange(fromDate);
-        } else {
-          toDate = date;
-
-          if (toDate < fromDate) {
-            fromDate = toDate;
-          }
-
-          activeBoundary = "from";
-          notifySelectedDateChange(toDate);
-        }
-
-        syncInputs();
-        renderCalendar();
-      });
-
-      calendarDays.append(button);
-    }
-  }
-
-  fromInput.addEventListener("focus", () => {
-    activeBoundary = "from";
-  });
-  toInput.addEventListener("focus", () => {
-    activeBoundary = "to";
-  });
   fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
   toInput.addEventListener("change", () => updateToInput(toInput.value));
-  previousMonthButton.addEventListener("click", () => {
-    displayedMonth = addMonths(displayedMonth, -1);
-    renderCalendar();
-  });
-  nextMonthButton.addEventListener("click", () => {
-    displayedMonth = addMonths(displayedMonth, 1);
-    renderCalendar();
-  });
   document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
-    const { from, to, source } = (
+    const { from, to, selected, source } = (
       event as CustomEvent<SelectedDateChangeDetail>
     ).detail;
 
@@ -939,11 +996,26 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
+
+      if (source === "weather-timeline") {
+        setTrainDelayRange({ from: selected, to: selected });
+      } else {
+        setTrainDelayRange({
+          from: formatDateInputValue(fromDate),
+          to: formatDateInputValue(toDate),
+        });
+      }
     }
   }) as EventListener);
 
+  document.addEventListener(WEATHER_DATE_PREVIEW_EVENT, ((event: Event) => {
+    const { selected } = (event as CustomEvent<WeatherDatePreviewDetail>)
+      .detail;
+
+    setTrainDelayRange({ from: selected, to: selected });
+  }) as EventListener);
+
   syncInputs();
-  renderCalendar();
 }
 
 renderTrainNetwork();
@@ -965,11 +1037,7 @@ zoom = d3
       return;
     }
 
-    if (
-      activeViewMode === "stations" &&
-      currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL &&
-      !focusedState
-    ) {
+    if (currentZoomTransform.k >= LOCAL_STATIONS_ZOOM_LEVEL && !focusedState) {
       const centerState =
         (lastPointer ? stateAtScreenPoint(lastPointer) : null) ??
         stateAtViewportCenter();
@@ -979,11 +1047,7 @@ zoom = d3
       }
     }
 
-    if (
-      activeViewMode === "stations" &&
-      currentZoomTransform.k < LOCAL_STATIONS_ZOOM_LEVEL &&
-      focusedState
-    ) {
+    if (currentZoomTransform.k < LOCAL_STATIONS_ZOOM_LEVEL && focusedState) {
       focusState(null, false);
     }
 
@@ -993,8 +1057,7 @@ zoom = d3
 map_svg.call(zoom);
 setupStationFilterPanel();
 setupTimeRangePicker(DEFAULT_DATE_RANGE);
-setupViewModeControl();
-applyViewMode(activeViewMode);
+applyTemperatureView();
 
 const mapPanel = getRequiredElement<HTMLElement>("#map-panel");
 mapPanel.append(map_svg.node()!);
