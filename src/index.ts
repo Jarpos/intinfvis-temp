@@ -9,8 +9,10 @@ import {
   localStations,
   icStations,
   loadDelayConnections,
+  loadDelayTripsPerDay,
+  aggregateDelayConnections,
 } from "./data/bahn";
-import type { Connection, DelayDateRange, Station } from "./data/bahn";
+import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
@@ -32,6 +34,7 @@ let isClickFocusing = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
+let dailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
 let trainDelayRequestKey = "";
 let trainDelayLoadToken = 0;
 let selectedDelayRange: DelayDateRange = {
@@ -456,16 +459,19 @@ function requestTrainDelayConnections() {
 
   trainDelayRequestKey = requestKey;
   trainConnections = [];
+  dailyDelayTrips = null;
 
   const requestToken = ++trainDelayLoadToken;
 
-  loadDelayConnections(selectedDelayRange, regionNames)
-    .then((connections) => {
+  loadDelayTripsPerDay(selectedDelayRange, regionNames)
+    .then((tripsPerDay) => {
       if (requestToken !== trainDelayLoadToken) {
         return;
       }
 
-      trainConnections = connections;
+      dailyDelayTrips = tripsPerDay;
+      const allTrips = Object.values(tripsPerDay).flat();
+      trainConnections = aggregateDelayConnections(allTrips);
       renderTrainNetwork();
     })
     .catch((error) => {
@@ -560,6 +566,8 @@ function renderTrainNetwork() {
         .style("filter", null);
       tooltip.style("display", "none");
     });
+
+  weatherOverlay.updateData(visibleStationNames, focusedState, dailyDelayTrips);
 }
 
 function scheduleTrainNetworkRender() {

@@ -183,11 +183,13 @@
         bottom: 18px;
         left: 24px;
         z-index: 5;
-        display: grid;
-        gap: 8px;
-        padding: 10px 44px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 24px;
         border-radius: 7px;
         color: #f7fbff;
+        height: auto;
     }
 
     .weather-timeline-meta {
@@ -199,6 +201,8 @@
         color: rgba(247, 251, 255, 0.78);
         font-size: 12px;
         font-weight: 700;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding-bottom: 8px;
     }
 
     .weather-status {
@@ -207,142 +211,20 @@
         text-align: left;
     }
 
-    .weather-slider-wrap {
-        position: relative;
-        display: grid;
-        gap: 0;
-        min-width: 0;
-        height: 74px;
-        padding-top: 24px;
-    }
-
-    .weather-slider {
-        position: relative;
-        z-index: 4;
-        width: 100%;
-        height: 20px;
-        margin: 0;
-        appearance: none;
-        -webkit-appearance: none;
-        background: transparent;
-        cursor: pointer;
-    }
-
-    .weather-slider::-webkit-slider-runnable-track {
-        height: 20px;
-        background: transparent;
-        border: 0;
-    }
-
-    .weather-slider::-webkit-slider-thumb {
-        appearance: none;
-        -webkit-appearance: none;
-        width: 4px;
-        height: 26px;
-        margin-top: -3px;
-        border: 0;
-        border-radius: 2px;
-        background: #ff7a16;
-        box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
-    }
-
-    .weather-slider::-moz-range-track {
-        height: 20px;
-        background: transparent;
-        border: 0;
-    }
-
-    .weather-slider::-moz-range-thumb {
-        width: 4px;
-        height: 26px;
-        border: 0;
-        border-radius: 2px;
-        background: #ff7a16;
-        box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
-    }
-
-    .weather-step-marks {
-        position: relative;
-        height: 46px;
-        margin-top: -7px;
-        color: rgba(247, 251, 255, 0.86);
-        font-size: 11px;
-        border-top: 2px solid rgba(255, 255, 255, 0.74);
-    }
-
-    .weather-hour-tick {
-        position: absolute;
-        top: 0;
-        width: 1px;
-        height: 8px;
-        background: rgba(255, 255, 255, 0.56);
-        transform: translateX(-50%);
-    }
-
-    .weather-hour-tick.is-six-hour {
-        height: 14px;
-        background: rgba(255, 255, 255, 0.78);
-    }
-
-    .weather-hour-tick.is-noon {
-        height: 22px;
-        width: 2px;
-        background: rgba(255, 255, 255, 0.95);
-    }
-
-    .weather-day-label {
-        position: absolute;
-        top: 31px;
-        transform: translateX(-50%);
-        display: grid;
-        gap: 1px;
-        min-width: 78px;
-        max-width: 86px;
-        color: #f7fbff;
+    .weather-chart-tooltip {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        padding: 10px 12px;
+        color: #f8fafc;
         font-size: 12px;
-        font-weight: 800;
-        line-height: 1.05;
-        text-align: center;
-        white-space: nowrap;
-    }
-
-    .weather-day-label small {
-        color: rgba(247, 251, 255, 0.78);
-        font-size: 10px;
-        font-weight: 700;
-    }
-
-    .weather-time-bubble {
-        position: absolute;
-        left: clamp(32px, var(--weather-progress, 50%), calc(100% - 32px));
-        top: 0;
-        z-index: 5;
-        min-width: 52px;
-        padding: 4px 8px;
-        border-radius: 5px;
-        background: rgba(18, 28, 24, 0.96);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        color: #ffffff;
-        font-size: 14px;
-        font-weight: 800;
-        line-height: 1;
-        text-align: center;
-        transform: translateX(-50%);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
-        pointer-events: none;
-    }
-
-    .weather-time-bubble::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        bottom: -6px;
-        width: 0;
-        height: 0;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 6px solid rgba(18, 28, 24, 0.96);
-        transform: translateX(-50%);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
     .weather-contour {

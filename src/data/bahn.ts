@@ -285,7 +285,7 @@ function delayRegionPathSegment(regionName: string) {
   return encodeURIComponent(regionName);
 }
 
-function aggregateDelayConnections(trips: DelayTrip[]) {
+export function aggregateDelayConnections(trips: DelayTrip[]) {
   const connectionsByEdge = new Map<string, DelayConnectionAggregate>();
 
   trips.forEach((trip) => {
@@ -357,3 +357,42 @@ export async function loadDelayConnections(
 
   return aggregateDelayConnections(delayRows.flat());
 }
+
+export async function loadDelayTripsPerDay(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  const availableDates = await loadAvailableDelayDates();
+  const dates = delayDatesInRange(availableDates, range);
+  const regionNames = Array.from(new Set(nonIcRegions)).sort();
+  const regionNameSet = new Set(regionNames);
+
+  const results: { [date: string]: DelayTrip[] } = {};
+
+  await Promise.all(
+    dates.map(async (date) => {
+      const icUrl = `/data/bahn/csv/delays/ic/${date}.csv`;
+      const nonIcUrls =
+        regionNames.length > 0
+          ? (
+              await loadDelaySummaryRows(date)
+            )
+              .filter((summary) => regionNameSet.has(summary.region_name))
+              .map(
+                (summary) =>
+                  `/data/bahn/csv/delays/non_ic/${delayRegionPathSegment(summary.region_name)}/${summary.date}.csv`,
+              )
+          : [];
+
+      const urls = [icUrl, ...nonIcUrls];
+      const delayRows = await Promise.all(
+        urls.map((url) => loadDelayRows(url)),
+      );
+
+      results[date] = delayRows.flat();
+    }),
+  );
+
+  return results;
+}
+
