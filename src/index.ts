@@ -582,8 +582,10 @@ function renderTrainNetwork() {
 
   const dateToRender = previewDelayDate || activeDelayDate;
   let displayConnections = trainConnections;
-  if (dateToRender && dailyDelayTrips && dailyDelayTrips[dateToRender]) {
-    displayConnections = aggregateDelayConnections(dailyDelayTrips[dateToRender]);
+  if (dateToRender && dailyDelayTrips) {
+    displayConnections = aggregateDelayConnections(
+      dailyDelayTrips[dateToRender] ?? [],
+    );
   }
 
   appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames);
@@ -995,7 +997,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
   function notifySelectedDateChange() {
     ensureSelectedDateInRange();
-    activeDelayDate = null;
+    activeDelayDate = formatDateInputValue(selectedDate);
     previewDelayDate = null;
     setTrainDelayRange({
       from: formatDateInputValue(fromDate),
