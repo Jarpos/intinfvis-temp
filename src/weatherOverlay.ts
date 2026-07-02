@@ -574,7 +574,9 @@ export async function appendWeatherOverlay(
     .style("position", "absolute")
     .style("pointer-events", "none")
     .style("display", "none")
-    .style("z-index", "1000");
+    .style("z-index", "1000")
+    .style("transform", "translate3d(0,0,0)")
+    .style("will-change", "transform, left, top");
   document.body.append(chartTooltip.node()!);
 
   let activeRange: WeatherDateRange = {
@@ -905,12 +907,20 @@ export async function appendWeatherOverlay(
       .attr("pointer-events", "all")
       .style("cursor", "pointer");
 
+    let currentHoverIndex: number | null = null;
+
     const showChartTooltip = (event: MouseEvent, d: any) => {
       const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       
       const dayName = weekdayNames[d.time.getDay()];
       const dateStr = `${d.time.getDate()} ${monthNames[d.time.getMonth()]} ${d.time.getFullYear()}`;
+      
+      const chartNode = svgElement.node();
+      const containerRect = chartNode ? chartNode.getBoundingClientRect() : { left: 0, top: 0 };
+      const chartX = xScale(d.time) + margin.left;
+      const tooltipX = containerRect.left + window.scrollX + chartX;
+      const tooltipY = containerRect.top + window.scrollY - 10;
       
       chartTooltip
         .html(`
@@ -937,8 +947,9 @@ export async function appendWeatherOverlay(
           </div>
         `)
         .style("display", "block")
-        .style("left", `${event.pageX + 15}px`)
-        .style("top", `${event.pageY - 100}px`);
+        .style("left", `${tooltipX}px`)
+        .style("top", `${tooltipY}px`)
+        .style("transform", "translate(-50%, -100%)");
     };
 
     hoverRect
@@ -955,6 +966,11 @@ export async function appendWeatherOverlay(
           }
         });
 
+        if (closestIndex === currentHoverIndex) {
+          return;
+        }
+        currentHoverIndex = closestIndex;
+
         const d = chartData[closestIndex];
         const x = xScale(d.time);
 
@@ -969,6 +985,7 @@ export async function appendWeatherOverlay(
         previewHour(closestIndex);
       })
       .on("mouseleave", () => {
+        currentHoverIndex = null;
         hoverLine.style("display", "none");
         hoverCirclesG.style("display", "none");
         chartTooltip.style("display", "none");

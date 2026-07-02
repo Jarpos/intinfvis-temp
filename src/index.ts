@@ -35,6 +35,8 @@ let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
 let dailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+let activeDelayDate: string | null = null;
+let previewDelayDate: string | null = null;
 let trainDelayRequestKey = "";
 let trainDelayLoadToken = 0;
 let selectedDelayRange: DelayDateRange = {
@@ -532,7 +534,13 @@ function renderTrainNetwork() {
     ? COLORS.TRAINS.STATIONS
     : "#0f172a";
 
-  appendTrainStrecken(trainLinesLayer, trainConnections, visibleStationNames);
+  const dateToRender = previewDelayDate || activeDelayDate;
+  let displayConnections = trainConnections;
+  if (dateToRender && dailyDelayTrips && dailyDelayTrips[dateToRender]) {
+    displayConnections = aggregateDelayConnections(dailyDelayTrips[dateToRender]);
+  }
+
+  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames);
   appendTrainStations(
     trainStationsLayer,
     visibleStations,
@@ -931,6 +939,8 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
   }
 
   function notifySelectedDateChange(selectedDate: Date) {
+    activeDelayDate = null;
+    previewDelayDate = null;
     setTrainDelayRange({
       from: formatDateInputValue(fromDate),
       to: formatDateInputValue(toDate),
@@ -1006,8 +1016,10 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       setDateRange(nextFromDate, nextToDate);
 
       if (source === "weather-timeline") {
-        setTrainDelayRange({ from: selected, to: selected });
+        activeDelayDate = selected;
+        renderTrainNetwork();
       } else {
+        activeDelayDate = null;
         setTrainDelayRange({
           from: formatDateInputValue(fromDate),
           to: formatDateInputValue(toDate),
@@ -1020,7 +1032,8 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     const { selected } = (event as CustomEvent<WeatherDatePreviewDetail>)
       .detail;
 
-    setTrainDelayRange({ from: selected, to: selected });
+    previewDelayDate = selected;
+    renderTrainNetwork();
   }) as EventListener);
 
   syncInputs();
