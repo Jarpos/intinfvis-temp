@@ -575,7 +575,9 @@ function renderTrainNetwork() {
       tooltip.style("display", "none");
     });
 
-  weatherOverlay.updateData(visibleStationNames, focusedState, dailyDelayTrips);
+  if (!previewDelayDate) {
+    weatherOverlay.updateData(visibleStationNames, focusedState, dailyDelayTrips);
+  }
 }
 
 function scheduleTrainNetworkRender() {

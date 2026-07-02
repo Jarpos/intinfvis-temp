@@ -806,10 +806,11 @@ export async function appendWeatherOverlay(
     // 9. Draw Delay Bars (Grouped)
     const barWidth = Math.max(3, (innerWidth / chartData.length) * 0.18);
     const barG = chartSvg.append("g").attr("class", "delays-bars");
-    chartData.forEach(d => {
+    chartData.forEach((d, dayIndex) => {
       // Delays Count Bar (left)
       if (d.delaysCount > 0) {
         barG.append("rect")
+          .attr("class", `delay-bar day-${dayIndex}`)
           .attr("x", xScale(d.time) - barWidth)
           .attr("y", yScaleCount(d.delaysCount))
           .attr("width", barWidth - 1)
@@ -822,6 +823,7 @@ export async function appendWeatherOverlay(
       // Avg Delay Bar (right)
       if (d.avgDelayMin > 0) {
         barG.append("rect")
+          .attr("class", `delay-bar day-${dayIndex}`)
           .attr("x", xScale(d.time))
           .attr("y", yScaleDelay(d.avgDelayMin))
           .attr("width", barWidth - 1)
@@ -954,7 +956,7 @@ export async function appendWeatherOverlay(
 
     hoverRect
       .on("mousemove", function (event) {
-        const [mouseX] = d3.pointer(event, this);
+        const [mouseX, mouseY] = d3.pointer(event, this);
         
         let closestIndex = 0;
         let minDistance = Number.POSITIVE_INFINITY;
@@ -976,10 +978,29 @@ export async function appendWeatherOverlay(
 
         hoverLine.attr("x1", x).attr("x2", x).style("display", "block");
         
-        hCircleTemp.attr("cx", x).attr("cy", yScaleTemp(d.temp));
-        hCirclePrecip.attr("cx", x).attr("cy", yScalePrecip(d.precip));
-        hCircleSnow.attr("cx", x).attr("cy", yScaleSnow(d.snow));
+        if (Number.isFinite(d.temp)) {
+          hCircleTemp.attr("cx", x).attr("cy", yScaleTemp(d.temp)).style("display", null);
+        } else {
+          hCircleTemp.style("display", "none");
+        }
+        
+        if (Number.isFinite(d.precip)) {
+          hCirclePrecip.attr("cx", x).attr("cy", yScalePrecip(d.precip)).style("display", null);
+        } else {
+          hCirclePrecip.style("display", "none");
+        }
+        
+        if (Number.isFinite(d.snow)) {
+          hCircleSnow.attr("cx", x).attr("cy", yScaleSnow(d.snow)).style("display", null);
+        } else {
+          hCircleSnow.style("display", "none");
+        }
+        
         hoverCirclesG.style("display", "block");
+
+        // Highlight corresponding bars, dim others
+        chartSvg.selectAll(".delay-bar").attr("opacity", 0.2);
+        chartSvg.selectAll(`.day-${closestIndex}`).attr("opacity", 1.0);
 
         showChartTooltip(event, d);
         previewHour(closestIndex);
@@ -989,6 +1010,10 @@ export async function appendWeatherOverlay(
         hoverLine.style("display", "none");
         hoverCirclesG.style("display", "none");
         chartTooltip.style("display", "none");
+        
+        // Restore default bar opacities
+        chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
+        
         restoreSelectedHour();
       })
       .on("click", function (event) {
@@ -1183,13 +1208,20 @@ export async function appendWeatherOverlay(
     }
 
     const rect = controls.sliderWrap.getBoundingClientRect();
-    const isInside =
+    const isInsideSlider =
       event.clientX >= rect.left &&
       event.clientX <= rect.right &&
       event.clientY >= rect.top &&
       event.clientY <= rect.bottom;
 
-    if (!isInside) {
+    const chartRect = controls.chartContainer.getBoundingClientRect();
+    const isInsideChart =
+      event.clientX >= chartRect.left &&
+      event.clientX <= chartRect.right &&
+      event.clientY >= chartRect.top &&
+      event.clientY <= chartRect.bottom;
+
+    if (!isInsideSlider && !isInsideChart) {
       restoreSelectedHour();
     }
   };
