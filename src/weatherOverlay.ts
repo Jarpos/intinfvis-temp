@@ -51,6 +51,10 @@ export type WeatherOverlayController = {
   ) => void;
 };
 
+type WeatherOverlayOptions = {
+  beginLoadingTask?: (message: string) => () => void;
+};
+
 const formatTime = new Intl.DateTimeFormat("de-DE", {
   weekday: "short",
   day: "2-digit",
@@ -561,6 +565,7 @@ function getChartData(
 
 export async function appendWeatherOverlay(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
+  options: WeatherOverlayOptions = {},
 ): Promise<WeatherOverlayController> {
   const { dropdown, legendTitle, legendTicks } = createLegend();
 
@@ -1120,38 +1125,43 @@ export async function appendWeatherOverlay(
 
   const loadAndRender = async (range: WeatherDateRange) => {
     const requestId = (loadRequestId += 1);
+    const endLoadingTask = options.beginLoadingTask?.("Loading weather data...");
     controls.slider.disabled = true;
     controls.status.textContent = "Fetching Open-Meteo";
 
-    const dataset = await loadHistoricalTemperatures(range);
+    try {
+      const dataset = await loadHistoricalTemperatures(range);
 
-    if (requestId !== loadRequestId) {
-      return;
+      if (requestId !== loadRequestId) {
+        return;
+      }
+
+      if (dataset.hours.length === 0) {
+        throw new Error("No historic hourly temperatures returned");
+      }
+
+      controls.slider.disabled = false;
+      controls.slider.max = `${dataset.hours.length - 1}`;
+      activeDataset = dataset;
+      selectedHourIndex = matchingCalendarDateIndex(
+        dataset.hours,
+        dataset.selectedDate,
+      );
+      committedRenderHourIndex =
+        selectedHourIndex ??
+        closestHourIndex(dataset.hours, selectedDateTargetTime(dataset.fromDate));
+      previewHourIndex = null;
+      renderedHourIndex = -1;
+      controls.slider.value = `${committedRenderHourIndex}`;
+      updateStepMarks(controls.stepMarks, dataset.hours);
+
+      renderHour(overlay, dataset, committedRenderHourIndex, activeVariableKey);
+      renderedHourIndex = committedRenderHourIndex;
+
+      drawTimelineChart();
+    } finally {
+      endLoadingTask?.();
     }
-
-    if (dataset.hours.length === 0) {
-      throw new Error("No historic hourly temperatures returned");
-    }
-
-    controls.slider.disabled = false;
-    controls.slider.max = `${dataset.hours.length - 1}`;
-    activeDataset = dataset;
-    selectedHourIndex = matchingCalendarDateIndex(
-      dataset.hours,
-      dataset.selectedDate,
-    );
-    committedRenderHourIndex =
-      selectedHourIndex ??
-      closestHourIndex(dataset.hours, selectedDateTargetTime(dataset.fromDate));
-    previewHourIndex = null;
-    renderedHourIndex = -1;
-    controls.slider.value = `${committedRenderHourIndex}`;
-    updateStepMarks(controls.stepMarks, dataset.hours);
-
-    renderHour(overlay, dataset, committedRenderHourIndex, activeVariableKey);
-    renderedHourIndex = committedRenderHourIndex;
-
-    drawTimelineChart();
   };
 
   bindTooltip(layer, overlay, () => WEATHER_VARIABLES[activeVariableKey]);

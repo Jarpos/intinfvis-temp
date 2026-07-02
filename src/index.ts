@@ -46,6 +46,48 @@ let selectedDelayRange: DelayDateRange = {
 const allStationNames = new Set(localStations.map((station) => station.name));
 const selectedStationNames = new Set(allStationNames);
 const geoPath = d3.geoPath(projection);
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingOverlayTitle =
+  loadingOverlay?.querySelector<HTMLElement>(".loader-title") ?? null;
+let loadingTaskCount = 0;
+let loadingHideTimer: number | null = null;
+
+function beginLoadingTask(message: string) {
+  loadingTaskCount += 1;
+
+  if (loadingHideTimer !== null) {
+    window.clearTimeout(loadingHideTimer);
+    loadingHideTimer = null;
+  }
+
+  if (loadingOverlayTitle) {
+    loadingOverlayTitle.textContent = message;
+  }
+
+  loadingOverlay?.classList.remove("is-hidden");
+
+  let isComplete = false;
+
+  return () => {
+    if (isComplete) {
+      return;
+    }
+
+    isComplete = true;
+    loadingTaskCount = Math.max(0, loadingTaskCount - 1);
+
+    if (loadingTaskCount > 0) {
+      return;
+    }
+
+    loadingHideTimer = window.setTimeout(() => {
+      loadingOverlay?.classList.add("is-hidden");
+      loadingHideTimer = null;
+    }, 0);
+  };
+}
+
+const completeInitialLoading = beginLoadingTask("Loading map data...");
 
 function regionKey(state?: string | null, region?: string | null) {
   return state && region ? `${state}|${region}` : null;
@@ -157,7 +199,7 @@ function buildStateBoundaryPaths() {
 const germanyAreas = appendGermany(g);
 
 // Hourly historic temperature map
-const weatherOverlay = await appendWeatherOverlay(g);
+const weatherOverlay = await appendWeatherOverlay(g, { beginLoadingTask });
 
 const stateHoverLayer = g
   .append("g")
@@ -464,6 +506,7 @@ function requestTrainDelayConnections() {
   dailyDelayTrips = null;
 
   const requestToken = ++trainDelayLoadToken;
+  const endLoadingTask = beginLoadingTask("Loading delay data...");
 
   loadDelayTripsPerDay(selectedDelayRange, regionNames)
     .then((tripsPerDay) => {
@@ -482,6 +525,9 @@ function requestTrainDelayConnections() {
       }
 
       console.error("Failed to load train delay data", error);
+    })
+    .finally(() => {
+      endLoadingTask();
     });
 }
 
@@ -1099,10 +1145,4 @@ mapPanel.append(map_svg.node()!);
 
 document.body.append(tooltip.node()!);
 
-const loadingOverlay = document.getElementById("loading-overlay");
-if (loadingOverlay) {
-  loadingOverlay.style.opacity = "0";
-  setTimeout(() => {
-    loadingOverlay.remove();
-  }, 400);
-}
+completeInitialLoading();
