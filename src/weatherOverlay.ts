@@ -334,6 +334,11 @@ function closestHourIndex(hours: WeatherHour[], target: Date) {
   ).index;
 }
 
+function matchingCalendarDateIndex(hours: WeatherHour[], target: Date) {
+  const index = hours.findIndex((hour) => sameCalendarDate(hour.time, target));
+  return index === -1 ? null : index;
+}
+
 function hourIndexFromPointer(
   event: MouseEvent,
   element: HTMLElement,
@@ -585,7 +590,8 @@ export async function appendWeatherOverlay(
     selected: DEFAULT_DATE_RANGE.from,
   };
   let activeDataset: WeatherDataset | null = null;
-  let selectedHourIndex = 0;
+  let selectedHourIndex: number | null = 0;
+  let committedRenderHourIndex = 0;
   let renderedHourIndex = -1;
   let previewHourIndex: number | null = null;
   let loadRequestId = 0;
@@ -882,7 +888,11 @@ export async function appendWeatherOverlay(
       .style("display", "none")
       .attr("pointer-events", "none");
 
-    if (selectedHourIndex >= 0 && selectedHourIndex < chartData.length) {
+    if (
+      selectedHourIndex !== null &&
+      selectedHourIndex >= 0 &&
+      selectedHourIndex < chartData.length
+    ) {
       const selX = xScale(chartData[selectedHourIndex].time);
       selectedLine.attr("x1", selX).attr("x2", selX).style("display", "block");
     }
@@ -1126,17 +1136,20 @@ export async function appendWeatherOverlay(
     controls.slider.disabled = false;
     controls.slider.max = `${dataset.hours.length - 1}`;
     activeDataset = dataset;
-    selectedHourIndex = closestHourIndex(
+    selectedHourIndex = matchingCalendarDateIndex(
       dataset.hours,
-      selectedDateTargetTime(dataset.selectedDate),
+      dataset.selectedDate,
     );
+    committedRenderHourIndex =
+      selectedHourIndex ??
+      closestHourIndex(dataset.hours, selectedDateTargetTime(dataset.fromDate));
     previewHourIndex = null;
     renderedHourIndex = -1;
-    controls.slider.value = `${selectedHourIndex}`;
+    controls.slider.value = `${committedRenderHourIndex}`;
     updateStepMarks(controls.stepMarks, dataset.hours);
 
-    renderHour(overlay, dataset, selectedHourIndex, activeVariableKey);
-    renderedHourIndex = selectedHourIndex;
+    renderHour(overlay, dataset, committedRenderHourIndex, activeVariableKey);
+    renderedHourIndex = committedRenderHourIndex;
 
     drawTimelineChart();
   };
@@ -1165,6 +1178,7 @@ export async function appendWeatherOverlay(
       !activeRange.selected ||
       !sameCalendarDate(activeRange.selected, hour.time);
     selectedHourIndex = index;
+    committedRenderHourIndex = index;
     activeRange = { ...activeRange, selected: hour.time };
     previewHourIndex = null;
     controls.slider.value = `${index}`;
@@ -1174,7 +1188,7 @@ export async function appendWeatherOverlay(
     if (selectedDayChanged) {
       dispatchSelectedDateChange(activeRange, hour.time);
     }
-    
+
     drawTimelineChart();
   };
 
@@ -1184,11 +1198,12 @@ export async function appendWeatherOverlay(
     }
 
     previewHourIndex = null;
-    controls.slider.value = `${selectedHourIndex}`;
-    renderHour(overlay, activeDataset, selectedHourIndex, activeVariableKey);
-    renderedHourIndex = selectedHourIndex;
-    dispatchWeatherDatePreview(activeDataset.hours[selectedHourIndex].time);
-    
+    const restoreIndex = selectedHourIndex ?? committedRenderHourIndex;
+    controls.slider.value = `${restoreIndex}`;
+    renderHour(overlay, activeDataset, restoreIndex, activeVariableKey);
+    renderedHourIndex = restoreIndex;
+    dispatchWeatherDatePreview(activeDataset.hours[restoreIndex].time);
+
     drawTimelineChart();
   };
 
@@ -1324,4 +1339,3 @@ export async function appendWeatherOverlay(
     }
   };
 }
-

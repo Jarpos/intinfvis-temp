@@ -934,13 +934,21 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
   let fromDate = initialFromDate;
   let toDate = initialToDate;
+  let selectedDate = initialFromDate;
 
   function syncInputs() {
     fromInput.value = formatDateInputValue(fromDate);
     toInput.value = formatDateInputValue(toDate);
   }
 
-  function notifySelectedDateChange(selectedDate: Date) {
+  function ensureSelectedDateInRange() {
+    if (selectedDate < fromDate || selectedDate > toDate) {
+      selectedDate = fromDate;
+    }
+  }
+
+  function notifySelectedDateChange() {
+    ensureSelectedDateInRange();
     activeDelayDate = null;
     previewDelayDate = null;
     setTrainDelayRange({
@@ -980,7 +988,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     }
 
     syncInputs();
-    notifySelectedDateChange(fromDate);
+    notifySelectedDateChange();
   }
 
   function updateToInput(value: string) {
@@ -997,7 +1005,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     }
 
     syncInputs();
-    notifySelectedDateChange(toDate);
+    notifySelectedDateChange();
   }
 
   fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
@@ -1013,11 +1021,15 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
     const nextFromDate = parseDateInputValue(from);
     const nextToDate = parseDateInputValue(to);
+    const nextSelectedDate = parseDateInputValue(selected);
 
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
 
       if (source === "weather-timeline") {
+        if (nextSelectedDate) {
+          selectedDate = startOfDay(nextSelectedDate);
+        }
         activeDelayDate = selected;
         renderTrainNetwork();
       } else {
