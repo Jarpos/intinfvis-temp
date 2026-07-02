@@ -78,10 +78,10 @@ export const WEATHER_VARIABLES: Record<
   snow_depth: {
     key: "snow_depth",
     label: "Snow Depth",
-    unit: "m",
+    unit: "cm",
     min: 0,
-    max: 1,
-    ticks: [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0],
+    max: 100,
+    ticks: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0],
   },
 };
 
@@ -387,20 +387,18 @@ export async function loadHistoricalTemperatures(
       );
       return { time, label, temperature_2m, precipitation, snow_depth };
     })
-    .filter(
-      (hour) => {
-        const day = startOfDay(hour.time);
+    .filter((hour) => {
+      const day = startOfDay(hour.time);
 
-        return (
-          day >= start &&
-          day <= end &&
-          day <= currentDay &&
-          (hour.temperature_2m.some(Number.isFinite) ||
-            hour.precipitation.some(Number.isFinite) ||
-            hour.snow_depth.some(Number.isFinite))
-        );
-      },
-    );
+      return (
+        day >= start &&
+        day <= end &&
+        day <= currentDay &&
+        (hour.temperature_2m.some(Number.isFinite) ||
+          hour.precipitation.some(Number.isFinite) ||
+          hour.snow_depth.some(Number.isFinite))
+      );
+    });
 
   return {
     points,
