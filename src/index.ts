@@ -506,7 +506,6 @@ function requestTrainDelayConnections() {
   dailyDelayTrips = null;
 
   const requestToken = ++trainDelayLoadToken;
-  const endLoadingTask = beginLoadingTask("Loading delay data...");
 
   loadDelayTripsPerDay(selectedDelayRange, regionNames)
     .then((tripsPerDay) => {
@@ -525,9 +524,6 @@ function requestTrainDelayConnections() {
       }
 
       console.error("Failed to load train delay data", error);
-    })
-    .finally(() => {
-      endLoadingTask();
     });
 }
 
