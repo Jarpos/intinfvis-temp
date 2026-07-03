@@ -170,7 +170,7 @@ function createTimeline() {
   const containerBody = document.createElement("div");
   containerBody.className = "weather-timeline-body";
   containerBody.style.display = "flex";
-  containerBody.style.gap = "20px";
+  containerBody.style.gap = "24px";
   containerBody.style.alignItems = "stretch";
 
   const chartContainer = document.createElement("div");
@@ -568,6 +568,39 @@ function getChartData(
 type WeatherChartDatum = ReturnType<typeof getChartData>[number];
 type TimeDomain = [Date, Date];
 
+const TIMELINE_AXIS_PLOT_GAP = 14;
+const TIMELINE_AXIS_COLUMN_GAP = 35;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function paddedTimelineDomain(chartData: WeatherChartDatum[]): TimeDomain {
+  const times = chartData
+    .map((d) => d.time.getTime())
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+
+  if (times.length === 0) {
+    const now = new Date();
+    return [
+      new Date(now.getTime() - DAY_MS / 2),
+      new Date(now.getTime() + DAY_MS / 2),
+    ];
+  }
+
+  const first = times[0];
+  const last = times[times.length - 1];
+  let minStep = Number.POSITIVE_INFINITY;
+
+  for (let i = 1; i < times.length; i += 1) {
+    const step = times[i] - times[i - 1];
+    if (step > 0 && step < minStep) {
+      minStep = step;
+    }
+  }
+
+  const padding = (Number.isFinite(minStep) ? minStep : DAY_MS) / 2;
+  return [new Date(first - padding), new Date(last + padding)];
+}
+
 function clampVisibleTimeDomain(
   visibleDomain: TimeDomain | null,
   fullDomain: TimeDomain,
@@ -747,7 +780,7 @@ export async function appendWeatherOverlay(
     const width = rect.width || 800;
     const height = rect.height || 180;
 
-    const margin = { top: 25, right: 90, bottom: 25, left: 105 };
+    const margin = { top: 25, right: 100, bottom: 25, left: 110 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
@@ -755,10 +788,7 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    const fullDomain: TimeDomain = [
-      d3.min(chartData, (d) => d.time)!,
-      d3.max(chartData, (d) => d.time)!,
-    ];
+    const fullDomain = paddedTimelineDomain(chartData);
     const baseXScale = d3.scaleTime().domain(fullDomain).range([0, innerWidth]);
     visibleTimelineDomain = clampVisibleTimeDomain(
       visibleTimelineDomain,
@@ -930,7 +960,7 @@ export async function appendWeatherOverlay(
       ticks.forEach((val) => {
         colG
           .append("text")
-          .attr("x", 15)
+          .attr("x", 0)
           .attr("y", scale(val))
           .attr("dy", "0.35em")
           .attr("text-anchor", "start")
@@ -946,23 +976,37 @@ export async function appendWeatherOverlay(
     };
 
     const leftAxesG = chartSvg.append("g").attr("class", "y-axes-left");
-    drawLeftAxisColumn(leftAxesG, ticksSnow, yScaleSnow, -80, "cm", formatVal);
+    drawLeftAxisColumn(
+      leftAxesG,
+      ticksSnow,
+      yScaleSnow,
+      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP * 2),
+      "cm",
+      formatVal,
+    );
     drawLeftAxisColumn(
       leftAxesG,
       ticksPrecip,
       yScalePrecip,
-      -45,
+      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP),
       "mm",
       formatVal,
     );
-    drawLeftAxisColumn(leftAxesG, ticksTemp, yScaleTemp, -10, "°C", formatVal);
+    drawLeftAxisColumn(
+      leftAxesG,
+      ticksTemp,
+      yScaleTemp,
+      -TIMELINE_AXIS_PLOT_GAP,
+      "°C",
+      formatVal,
+    );
 
     const rightAxesG = chartSvg.append("g").attr("class", "y-axes-right");
     drawRightAxisColumn(
       rightAxesG,
       ticksCount,
       yScaleCount,
-      innerWidth + 10,
+      innerWidth + TIMELINE_AXIS_PLOT_GAP,
       "count",
       formatVal,
     );
@@ -970,7 +1014,7 @@ export async function appendWeatherOverlay(
       rightAxesG,
       ticksDelay,
       yScaleDelay,
-      innerWidth + 45,
+      innerWidth + TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP,
       "min",
       formatVal,
     );
