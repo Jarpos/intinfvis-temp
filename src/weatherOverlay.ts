@@ -31,7 +31,6 @@ import type { DelayTrip } from "./data/bahn";
 
 type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
-  status: HTMLDivElement;
   slider: HTMLInputElement;
   sliderWrap: HTMLDivElement;
   stepMarks: HTMLDivElement;
@@ -168,18 +167,6 @@ function createTimeline() {
   const timeline = document.createElement("div");
   timeline.className = "weather-timeline";
 
-  const meta = document.createElement("div");
-  meta.className = "weather-timeline-meta";
-
-  const utcLabel = document.createElement("div");
-  utcLabel.textContent = "UTC+02:00 Europe/Berlin";
-
-  const status = document.createElement("div");
-  status.className = "weather-status";
-  status.textContent = "Fetching Open-Meteo";
-
-  meta.append(utcLabel, status);
-
   const containerBody = document.createElement("div");
   containerBody.className = "weather-timeline-body";
   containerBody.style.display = "flex";
@@ -201,7 +188,7 @@ function createTimeline() {
   legendContainer.style.gap = "8px";
 
   containerBody.append(chartContainer, legendContainer);
-  timeline.append(meta, containerBody);
+  timeline.append(containerBody);
   document.body.append(timeline);
 
   // Keep a dummy slider and other elements for compatibility
@@ -216,7 +203,7 @@ function createTimeline() {
   const timeBubble = document.createElement("div");
   timeBubble.style.display = "none";
 
-  return { status, slider, sliderWrap, stepMarks, timeBubble, chartContainer, legendContainer };
+  return { slider, sliderWrap, stepMarks, timeBubble, chartContainer, legendContainer };
 }
 
 function formatDayName(date: Date) {
@@ -430,7 +417,6 @@ function renderHour(
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
 
-  // overlay.status.textContent = `${formatTime.format(hour.time).replace(",", "")} · ${dataset.points.length} samples`;
 }
 
 function dispatchSelectedDateChange(
@@ -1111,8 +1097,9 @@ export async function appendWeatherOverlay(
     .attr("pointer-events", "none");
 
   const showWeatherError = (error: unknown) => {
-    controls.status.textContent =
-      error instanceof Error ? error.message : "Could not load weather";
+    console.error(
+      error instanceof Error ? error.message : "Could not load weather",
+    );
 
     layer
       .append("rect")
@@ -1127,7 +1114,6 @@ export async function appendWeatherOverlay(
     const requestId = (loadRequestId += 1);
     const endLoadingTask = options.beginLoadingTask?.("Loading weather data...");
     controls.slider.disabled = true;
-    controls.status.textContent = "Fetching Open-Meteo";
 
     try {
       const dataset = await loadHistoricalTemperatures(range);
