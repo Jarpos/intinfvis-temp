@@ -565,6 +565,77 @@ function getChartData(
   });
 }
 
+type WeatherChartDatum = ReturnType<typeof getChartData>[number];
+type TimeDomain = [Date, Date];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function clampVisibleTimeDomain(
+  visibleDomain: TimeDomain | null,
+  fullDomain: TimeDomain,
+): TimeDomain {
+  if (!visibleDomain) {
+    return fullDomain;
+  }
+
+  const fullStart = fullDomain[0].getTime();
+  const fullEnd = fullDomain[1].getTime();
+  const fullDuration = fullEnd - fullStart;
+
+  if (fullDuration <= 0) {
+    return fullDomain;
+  }
+
+  const requestedDuration = visibleDomain[1].getTime() - visibleDomain[0].getTime();
+  const duration = Math.max(1, Math.min(fullDuration, requestedDuration));
+  const minStart = fullStart;
+  const maxStart = fullEnd - duration;
+  const start = Math.max(
+    minStart,
+    Math.min(maxStart, visibleDomain[0].getTime()),
+  );
+
+  return [new Date(start), new Date(start + duration)];
+}
+
+function zoomTransformForTimeDomain(
+  baseXScale: d3.ScaleTime<number, number>,
+  visibleDomain: TimeDomain,
+): d3.ZoomTransform {
+  const [fullStart, fullEnd] = baseXScale.domain().map((date) => date.getTime());
+  const visibleDuration =
+    visibleDomain[1].getTime() - visibleDomain[0].getTime();
+  const fullDuration = fullEnd - fullStart;
+
+  if (fullDuration <= 0 || visibleDuration <= 0) {
+    return d3.zoomIdentity;
+  }
+
+  const k = fullDuration / visibleDuration;
+  return d3.zoomIdentity
+    .translate(-baseXScale(visibleDomain[0]) * k, 0)
+    .scale(k);
+}
+
+function formatTimelineTick(date: Date, visibleDomain: TimeDomain) {
+  const visibleDays =
+    (visibleDomain[1].getTime() - visibleDomain[0].getTime()) / DAY_MS;
+
+  if (visibleDays > 370) {
+    return d3.timeFormat("%b %Y")(date);
+  }
+
+  if (visibleDays > 90) {
+    return d3.timeFormat("%b")(date);
+  }
+
+  if (visibleDays > 21) {
+    return d3.timeFormat("%d.%m.")(date);
+  }
+
+  return d3.timeFormat("%a %d.%m.")(date);
+}
+
 export async function appendWeatherOverlay(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
   options: WeatherOverlayOptions = {},
@@ -605,6 +676,9 @@ export async function appendWeatherOverlay(
   let loadRequestId = 0;
   const svg = g.node()?.ownerSVGElement;
   const clipId = "weather-germany-clip";
+  const timelineClipId = "weather-timeline-clip";
+  let visibleTimelineDomain: TimeDomain | null = null;
+  let timelineZoomTransform = d3.zoomIdentity;
 
   const updateLegendHTML = (container: HTMLDivElement) => {
     container.innerHTML = `
@@ -645,8 +719,13 @@ export async function appendWeatherOverlay(
       currentDailyDelayTrips,
     );
 
+    if (chartData.length === 0) {
+      return;
+    }
+
     const container = controls.chartContainer;
     d3.select(container).html("");
+    chartTooltip.style("display", "none");
 
     const rect = container.getBoundingClientRect();
     const width = rect.width || 800;
@@ -660,18 +739,41 @@ export async function appendWeatherOverlay(
       return;
     }
 
+    const fullDomain: TimeDomain = [
+      d3.min(chartData, (d) => d.time)!,
+      d3.max(chartData, (d) => d.time)!,
+    ];
+    const baseXScale = d3.scaleTime().domain(fullDomain).range([0, innerWidth]);
+    visibleTimelineDomain = clampVisibleTimeDomain(
+      visibleTimelineDomain,
+      fullDomain,
+    );
+    timelineZoomTransform = zoomTransformForTimeDomain(
+      baseXScale,
+      visibleTimelineDomain,
+    );
+    let xScale = timelineZoomTransform.rescaleX(baseXScale);
+
     const svgElement = d3
       .select(container)
       .append("svg")
       .attr("width", width)
       .attr("height", height)
+      .attr("class", "weather-timeline-svg")
       .style("display", "block");
+
+    svgElement
+      .append("defs")
+      .append("clipPath")
+      .attr("id", timelineClipId)
+      .append("rect")
+      .attr("width", innerWidth)
+      .attr("height", innerHeight);
 
     const chartSvg = svgElement
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    // 1. Calculate Nice Y Domains
     const tempExtent = d3.extent(chartData, (d) => d.temp);
     let tempMin = tempExtent[0] !== undefined ? tempExtent[0] : 12;
     let tempMax = tempExtent[1] !== undefined ? tempExtent[1] : 27;
@@ -688,21 +790,18 @@ export async function appendWeatherOverlay(
       .domain([0, precipMax])
       .nice(5)
       .domain()[1];
-
     const snowMax = d3.max(chartData, (d) => d.snow) || 5;
     const niceSnowMax = d3
       .scaleLinear()
       .domain([0, snowMax])
       .nice(5)
       .domain()[1];
-
     const countMax = d3.max(chartData, (d) => d.delaysCount) || 5;
     const niceCountMax = d3
       .scaleLinear()
       .domain([0, countMax])
       .nice(5)
       .domain()[1];
-
     const delayMinMax = d3.max(chartData, (d) => d.avgDelayMin) || 5;
     const niceDelayMax = d3
       .scaleLinear()
@@ -710,7 +809,6 @@ export async function appendWeatherOverlay(
       .nice(5)
       .domain()[1];
 
-    // 2. Define Y Scales
     const yScaleTemp = d3
       .scaleLinear()
       .domain([niceTempMin, niceTempMax])
@@ -732,17 +830,15 @@ export async function appendWeatherOverlay(
       .domain([0, niceDelayMax])
       .range([innerHeight, 0]);
 
-    // 3. Generate equally spaced tick values for perfect alignment
     const tickIndices = [0, 1, 2, 3, 4, 5];
     const ticksTemp = tickIndices.map(
       (i) => niceTempMin + (i * (niceTempMax - niceTempMin)) / 5,
     );
-    const ticksPrecip = tickIndices.map((i) => 0 + (i * nicePrecipMax) / 5);
-    const ticksSnow = tickIndices.map((i) => 0 + (i * niceSnowMax) / 5);
-    const ticksCount = tickIndices.map((i) => 0 + (i * niceCountMax) / 5);
-    const ticksDelay = tickIndices.map((i) => 0 + (i * niceDelayMax) / 5);
+    const ticksPrecip = tickIndices.map((i) => (i * nicePrecipMax) / 5);
+    const ticksSnow = tickIndices.map((i) => (i * niceSnowMax) / 5);
+    const ticksCount = tickIndices.map((i) => (i * niceCountMax) / 5);
+    const ticksDelay = tickIndices.map((i) => (i * niceDelayMax) / 5);
 
-    // 4. Draw Horizontal Grid Lines
     const gridG = chartSvg.append("g").attr("class", "grid-lines");
     tickIndices.forEach((i) => {
       const y = (i / 5) * innerHeight;
@@ -756,11 +852,10 @@ export async function appendWeatherOverlay(
         .attr("stroke-width", 1);
     });
 
-    // 5. Draw Y-Axes Columns Left
     const drawLeftAxisColumn = (
-      axisG: any,
+      axisG: d3.Selection<SVGGElement, unknown, null, undefined>,
       ticks: number[],
-      scale: any,
+      scale: d3.ScaleLinear<number, number>,
       xOffset: number,
       labelText: string,
       formatFn: (v: number) => string,
@@ -793,28 +888,10 @@ export async function appendWeatherOverlay(
       });
     };
 
-    const formatVal = (v: number) => {
-      if (v === 0) return "0";
-      return v % 1 === 0 ? `${v}` : v.toFixed(1);
-    };
-
-    const leftAxesG = chartSvg.append("g").attr("class", "y-axes-left");
-    drawLeftAxisColumn(leftAxesG, ticksSnow, yScaleSnow, -80, "cm", formatVal);
-    drawLeftAxisColumn(
-      leftAxesG,
-      ticksPrecip,
-      yScalePrecip,
-      -45,
-      "mm",
-      formatVal,
-    );
-    drawLeftAxisColumn(leftAxesG, ticksTemp, yScaleTemp, -10, "°C", formatVal);
-
-    // 6. Draw Y-Axes Columns Right
     const drawRightAxisColumn = (
-      axisG: any,
+      axisG: d3.Selection<SVGGElement, unknown, null, undefined>,
       ticks: number[],
-      scale: any,
+      scale: d3.ScaleLinear<number, number>,
       xOffset: number,
       labelText: string,
       formatFn: (v: number) => string,
@@ -847,6 +924,23 @@ export async function appendWeatherOverlay(
       });
     };
 
+    const formatVal = (v: number) => {
+      if (v === 0) return "0";
+      return v % 1 === 0 ? `${v}` : v.toFixed(1);
+    };
+
+    const leftAxesG = chartSvg.append("g").attr("class", "y-axes-left");
+    drawLeftAxisColumn(leftAxesG, ticksSnow, yScaleSnow, -80, "cm", formatVal);
+    drawLeftAxisColumn(
+      leftAxesG,
+      ticksPrecip,
+      yScalePrecip,
+      -45,
+      "mm",
+      formatVal,
+    );
+    drawLeftAxisColumn(leftAxesG, ticksTemp, yScaleTemp, -10, "°C", formatVal);
+
     const rightAxesG = chartSvg.append("g").attr("class", "y-axes-right");
     drawRightAxisColumn(
       rightAxesG,
@@ -865,152 +959,108 @@ export async function appendWeatherOverlay(
       formatVal,
     );
 
-    // 7. Define X Scale
-    const xScale = d3
-      .scaleTime()
-      .domain([
-        d3.min(chartData, (d) => d.time)!,
-        d3.max(chartData, (d) => d.time)!,
-      ])
-      .range([0, innerWidth]);
-
-    // 8. Draw X Axis
-    const showYear =
-      d3.min(chartData, (x) => x.time.getFullYear()) !==
-      d3.max(chartData, (x) => x.time.getFullYear());
-    const xAxis = d3
-      .axisBottom(xScale)
-      .ticks(chartData.length)
-      .tickFormat((d) => {
-        const date = d as Date;
-        const day = `${date.getDate()}`.padStart(2, "0");
-        const month = `${date.getMonth() + 1}`.padStart(2, "0");
-        if (showYear) {
-          const year = `${date.getFullYear()}`.slice(-2);
-          return `${day}.${month}.${year}`;
-        }
-        return `${day}.${month}.`;
-      });
-
-    chartSvg
+    const xAxisG = chartSvg
       .append("g")
       .attr("class", "x-axis")
-      .attr("transform", `translate(0, ${innerHeight})`)
-      .call(xAxis)
-      .call((g) =>
-        g.select(".domain").attr("stroke", "rgba(255, 255, 255, 0.15)"),
+      .attr("transform", `translate(0, ${innerHeight})`);
+
+    const plotG = chartSvg
+      .append("g")
+      .attr("class", "weather-timeline-plot")
+      .attr("clip-path", `url(#${timelineClipId})`);
+    const barG = plotG.append("g").attr("class", "delays-bars");
+    const linesG = plotG.append("g").attr("class", "weather-lines");
+    const pointsG = plotG.append("g").attr("class", "weather-points");
+
+    const countBars = barG
+      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-count-bar")
+      .data(
+        chartData.filter((d) => d.delaysCount > 0),
+        (d) => `${d.index}`,
       )
-      .call((g) =>
-        g.selectAll(".tick line").attr("stroke", "rgba(255, 255, 255, 0.15)"),
+      .join("rect")
+      .attr("class", (d) => `delay-bar delay-count-bar day-${d.index}`)
+      .attr("y", (d) => yScaleCount(d.delaysCount))
+      .attr("height", (d) => Math.max(0, innerHeight - yScaleCount(d.delaysCount)))
+      .attr("fill", "#818cf8")
+      .attr("rx", 1)
+      .attr("opacity", 0.7);
+
+    const delayBars = barG
+      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-avg-bar")
+      .data(
+        chartData.filter((d) => d.avgDelayMin > 0),
+        (d) => `${d.index}`,
       )
-      .call((g) =>
-        g
-          .selectAll(".tick text")
-          .attr("fill", "rgba(255, 255, 255, 0.6)")
-          .style("font-size", "10px"),
-      );
+      .join("rect")
+      .attr("class", (d) => `delay-bar delay-avg-bar day-${d.index}`)
+      .attr("y", (d) => yScaleDelay(d.avgDelayMin))
+      .attr("height", (d) => Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)))
+      .attr("fill", "#c084fc")
+      .attr("rx", 1)
+      .attr("opacity", 0.7);
 
-    // 9. Draw Delay Bars (Grouped)
-    const barWidth = Math.max(3, (innerWidth / chartData.length) * 0.18);
-    const barG = chartSvg.append("g").attr("class", "delays-bars");
-    chartData.forEach((d, dayIndex) => {
-      // Delays Count Bar (left)
-      if (d.delaysCount > 0) {
-        barG
-          .append("rect")
-          .attr("class", `delay-bar day-${dayIndex}`)
-          .attr("x", xScale(d.time) - barWidth)
-          .attr("y", yScaleCount(d.delaysCount))
-          .attr("width", barWidth - 1)
-          .attr("height", Math.max(0, innerHeight - yScaleCount(d.delaysCount)))
-          .attr("fill", "#818cf8")
-          .attr("rx", 1)
-          .attr("opacity", 0.7);
-      }
-
-      // Avg Delay Bar (right)
-      if (d.avgDelayMin > 0) {
-        barG
-          .append("rect")
-          .attr("class", `delay-bar day-${dayIndex}`)
-          .attr("x", xScale(d.time))
-          .attr("y", yScaleDelay(d.avgDelayMin))
-          .attr("width", barWidth - 1)
-          .attr("height", Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)))
-          .attr("fill", "#c084fc")
-          .attr("rx", 1)
-          .attr("opacity", 0.7);
-      }
-    });
-
-    // 10. Draw Weather Lines
     const lineTemp = d3
-      .line<any>()
+      .line<WeatherChartDatum>()
+      .defined((d) => Number.isFinite(d.temp))
       .x((d) => xScale(d.time))
       .y((d) => yScaleTemp(d.temp));
     const linePrecip = d3
-      .line<any>()
+      .line<WeatherChartDatum>()
+      .defined((d) => Number.isFinite(d.precip))
       .x((d) => xScale(d.time))
       .y((d) => yScalePrecip(d.precip));
     const lineSnow = d3
-      .line<any>()
+      .line<WeatherChartDatum>()
+      .defined((d) => Number.isFinite(d.snow))
       .x((d) => xScale(d.time))
       .y((d) => yScaleSnow(d.snow));
 
-    const linesG = chartSvg.append("g").attr("class", "weather-lines");
-
-    // Precipitation (Blue)
-    linesG
+    const precipLine = linesG
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#3b82f6")
-      .attr("stroke-width", 1.8)
-      .attr("d", linePrecip);
-
-    // Snowfall (White)
-    linesG
+      .attr("stroke-width", 1.8);
+    const snowLine = linesG
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#ffffff")
-      .attr("stroke-width", 1.8)
-      .attr("d", lineSnow);
-
-    // Temperature (Yellow)
-    linesG
+      .attr("stroke-width", 1.8);
+    const tempLine = linesG
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#fbbf24")
-      .attr("stroke-width", 1.8)
-      .attr("d", lineTemp);
+      .attr("stroke-width", 1.8);
 
-    // 11. Draw Data Points (Circles)
-    const pointsG = chartSvg.append("g").attr("class", "weather-points");
-    chartData.forEach((d) => {
-      pointsG
-        .append("circle")
-        .attr("cx", xScale(d.time))
-        .attr("cy", yScalePrecip(d.precip))
-        .attr("r", 3.2)
-        .attr("fill", "#3b82f6");
-      pointsG
-        .append("circle")
-        .attr("cx", xScale(d.time))
-        .attr("cy", yScaleSnow(d.snow))
-        .attr("r", 3.2)
-        .attr("fill", "#ffffff");
-      pointsG
-        .append("circle")
-        .attr("cx", xScale(d.time))
-        .attr("cy", yScaleTemp(d.temp))
-        .attr("r", 3.2)
-        .attr("fill", "#fbbf24");
-    });
+    const precipPoints = pointsG
+      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.precip-point")
+      .data(chartData.filter((d) => Number.isFinite(d.precip)))
+      .join("circle")
+      .attr("class", "precip-point")
+      .attr("cy", (d) => yScalePrecip(d.precip))
+      .attr("r", 3.2)
+      .attr("fill", "#3b82f6");
+    const snowPoints = pointsG
+      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.snow-point")
+      .data(chartData.filter((d) => Number.isFinite(d.snow)))
+      .join("circle")
+      .attr("class", "snow-point")
+      .attr("cy", (d) => yScaleSnow(d.snow))
+      .attr("r", 3.2)
+      .attr("fill", "#ffffff");
+    const tempPoints = pointsG
+      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.temp-point")
+      .data(chartData.filter((d) => Number.isFinite(d.temp)))
+      .join("circle")
+      .attr("class", "temp-point")
+      .attr("cy", (d) => yScaleTemp(d.temp))
+      .attr("r", 3.2)
+      .attr("fill", "#fbbf24");
 
-    // 12. Selection Line (orange)
-    const selectedLine = chartSvg
+    const selectedLine = plotG
       .append("line")
       .attr("y1", 0)
       .attr("y2", innerHeight)
@@ -1019,17 +1069,7 @@ export async function appendWeatherOverlay(
       .style("display", "none")
       .attr("pointer-events", "none");
 
-    if (
-      selectedHourIndex !== null &&
-      selectedHourIndex >= 0 &&
-      selectedHourIndex < chartData.length
-    ) {
-      const selX = xScale(chartData[selectedHourIndex].time);
-      selectedLine.attr("x1", selX).attr("x2", selX).style("display", "block");
-    }
-
-    // 13. Hover Elements
-    const hoverLine = chartSvg
+    const hoverLine = plotG
       .append("line")
       .attr("y1", 0)
       .attr("y2", innerHeight)
@@ -1038,7 +1078,7 @@ export async function appendWeatherOverlay(
       .style("display", "none")
       .attr("pointer-events", "none");
 
-    const hoverCirclesG = chartSvg
+    const hoverCirclesG = plotG
       .append("g")
       .style("display", "none")
       .attr("pointer-events", "none");
@@ -1061,45 +1101,77 @@ export async function appendWeatherOverlay(
       .attr("stroke", "#1e293b")
       .attr("stroke-width", 1.5);
 
-    // 14. Hover Interactive Overlay Rect
-    const hoverRect = chartSvg
+    const captureRect = chartSvg
       .append("rect")
+      .attr("class", "weather-chart-zoom-capture")
       .attr("width", innerWidth)
       .attr("height", innerHeight)
       .attr("fill", "transparent")
-      .attr("pointer-events", "all")
-      .style("cursor", "pointer");
+      .attr("pointer-events", "all");
 
     let currentHoverIndex: number | null = null;
+    let pointerStart: [number, number] | null = null;
+    let pointerMoved = false;
 
-    const showChartTooltip = (event: MouseEvent, d: any) => {
-      const weekdayNames = [
-        "Sunday",
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-      ];
-      const monthNames = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ];
+    const dateFormatter = new Intl.DateTimeFormat("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "Europe/Berlin",
+    });
 
-      const dayName = weekdayNames[d.time.getDay()];
-      const dateStr = `${d.time.getDate()} ${monthNames[d.time.getMonth()]} ${d.time.getFullYear()}`;
+    const restoreBarOpacity = () => {
+      chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
+    };
 
+    const hideHoverState = () => {
+      currentHoverIndex = null;
+      hoverLine.style("display", "none");
+      hoverCirclesG.style("display", "none");
+      chartTooltip.style("display", "none");
+      restoreBarOpacity();
+    };
+
+    const closestIndexForX = (mouseX: number) => {
+      let closestIndex = 0;
+      let minDistance = Number.POSITIVE_INFINITY;
+      chartData.forEach((d, i) => {
+        const distance = Math.abs(xScale(d.time) - mouseX);
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = i;
+        }
+      });
+
+      return closestIndex;
+    };
+
+    const updateHoverMarkers = (index: number) => {
+      const d = chartData[index];
+      const x = xScale(d.time);
+
+      hoverLine.attr("x1", x).attr("x2", x).style("display", "block");
+
+      hCircleTemp
+        .attr("cx", x)
+        .attr("cy", yScaleTemp(d.temp))
+        .style("display", Number.isFinite(d.temp) ? "" : "none");
+      hCirclePrecip
+        .attr("cx", x)
+        .attr("cy", yScalePrecip(d.precip))
+        .style("display", Number.isFinite(d.precip) ? "" : "none");
+      hCircleSnow
+        .attr("cx", x)
+        .attr("cy", yScaleSnow(d.snow))
+        .style("display", Number.isFinite(d.snow) ? "" : "none");
+
+      hoverCirclesG.style("display", "block");
+      chartSvg.selectAll(".delay-bar").attr("opacity", 0.2);
+      chartSvg.selectAll(`.day-${d.index}`).attr("opacity", 1.0);
+    };
+
+    const showChartTooltip = (d: WeatherChartDatum) => {
       const chartNode = svgElement.node();
       const containerRect = chartNode
         ? chartNode.getBoundingClientRect()
@@ -1111,7 +1183,7 @@ export async function appendWeatherOverlay(
       chartTooltip
         .html(
           `
-          <div style="font-weight: 700; color: rgba(255,255,255,0.7); margin-bottom: 5px;">${dayName}, ${dateStr}</div>
+          <div style="font-weight: 700; color: rgba(255,255,255,0.7); margin-bottom: 5px;">${dateFormatter.format(d.time)}</div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #fbbf24;"></span>
             <span>temperature: <strong>${d.temp.toFixed(1)} °C</strong></span>
@@ -1140,95 +1212,149 @@ export async function appendWeatherOverlay(
         .style("transform", "translate(-50%, -100%)");
     };
 
-    hoverRect
-      .on("mousemove", function (event) {
-        const [mouseX, mouseY] = d3.pointer(event, this);
+    const renderZoomedChart = (
+      nextXScale: d3.ScaleTime<number, number>,
+      transform: d3.ZoomTransform,
+    ) => {
+      xScale = nextXScale;
+      timelineZoomTransform = transform;
+      const nextDomain = xScale.domain();
+      visibleTimelineDomain = [nextDomain[0], nextDomain[1]];
 
-        let closestIndex = 0;
-        let minDistance = Number.POSITIVE_INFINITY;
-        chartData.forEach((d, i) => {
-          const distance = Math.abs(xScale(d.time) - mouseX);
-          if (distance < minDistance) {
-            minDistance = distance;
-            closestIndex = i;
-          }
-        });
+      const tickCount = Math.max(2, Math.floor(innerWidth / 90));
+      const xAxis = d3
+        .axisBottom<Date>(xScale)
+        .ticks(tickCount)
+        .tickFormat((date) =>
+          formatTimelineTick(date as Date, visibleTimelineDomain!),
+        );
 
-        if (closestIndex === currentHoverIndex) {
-          return;
-        }
-        currentHoverIndex = closestIndex;
+      xAxisG
+        .call(xAxis)
+        .call((axisG) =>
+          axisG.select(".domain").attr("stroke", "rgba(255, 255, 255, 0.15)"),
+        )
+        .call((axisG) =>
+          axisG
+            .selectAll(".tick line")
+            .attr("stroke", "rgba(255, 255, 255, 0.15)"),
+        )
+        .call((axisG) =>
+          axisG
+            .selectAll(".tick text")
+            .attr("fill", "rgba(255, 255, 255, 0.6)")
+            .style("font-size", "10px"),
+        );
 
-        const d = chartData[closestIndex];
-        const x = xScale(d.time);
+      const barWidth = Math.max(
+        3,
+        Math.min(18, (innerWidth / chartData.length) * transform.k * 0.18),
+      );
 
-        hoverLine.attr("x1", x).attr("x2", x).style("display", "block");
+      countBars
+        .attr("x", (d) => xScale(d.time) - barWidth)
+        .attr("width", Math.max(1, barWidth - 1));
+      delayBars
+        .attr("x", (d) => xScale(d.time))
+        .attr("width", Math.max(1, barWidth - 1));
 
-        if (Number.isFinite(d.temp)) {
-          hCircleTemp
-            .attr("cx", x)
-            .attr("cy", yScaleTemp(d.temp))
-            .style("display", null);
-        } else {
-          hCircleTemp.style("display", "none");
-        }
+      precipLine.attr("d", linePrecip);
+      snowLine.attr("d", lineSnow);
+      tempLine.attr("d", lineTemp);
+      precipPoints.attr("cx", (d) => xScale(d.time));
+      snowPoints.attr("cx", (d) => xScale(d.time));
+      tempPoints.attr("cx", (d) => xScale(d.time));
 
-        if (Number.isFinite(d.precip)) {
-          hCirclePrecip
-            .attr("cx", x)
-            .attr("cy", yScalePrecip(d.precip))
-            .style("display", null);
-        } else {
-          hCirclePrecip.style("display", "none");
-        }
-
-        if (Number.isFinite(d.snow)) {
-          hCircleSnow
-            .attr("cx", x)
-            .attr("cy", yScaleSnow(d.snow))
-            .style("display", null);
-        } else {
-          hCircleSnow.style("display", "none");
-        }
-
-        hoverCirclesG.style("display", "block");
-
-        // Highlight corresponding bars, dim others
-        chartSvg.selectAll(".delay-bar").attr("opacity", 0.2);
-        chartSvg.selectAll(`.day-${closestIndex}`).attr("opacity", 1.0);
-
-        showChartTooltip(event, d);
-        previewHour(closestIndex);
-      })
-      .on("mouseleave", () => {
-        currentHoverIndex = null;
-        hoverLine.style("display", "none");
-        hoverCirclesG.style("display", "none");
-        chartTooltip.style("display", "none");
-
-        // Restore default bar opacities
-        chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
-
-        restoreSelectedHour();
-      })
-      .on("click", function (event) {
-        const [mouseX] = d3.pointer(event, this);
-        let closestIndex = 0;
-        let minDistance = Number.POSITIVE_INFINITY;
-        chartData.forEach((d, i) => {
-          const distance = Math.abs(xScale(d.time) - mouseX);
-          if (distance < minDistance) {
-            minDistance = distance;
-            closestIndex = i;
-          }
-        });
-
-        commitHour(closestIndex);
-        const selX = xScale(chartData[closestIndex].time);
+      if (
+        selectedHourIndex !== null &&
+        selectedHourIndex >= 0 &&
+        selectedHourIndex < chartData.length
+      ) {
+        const selX = xScale(chartData[selectedHourIndex].time);
         selectedLine
           .attr("x1", selX)
           .attr("x2", selX)
           .style("display", "block");
+      } else {
+        selectedLine.style("display", "none");
+      }
+
+      if (currentHoverIndex !== null) {
+        updateHoverMarkers(currentHoverIndex);
+        showChartTooltip(chartData[currentHoverIndex]);
+      }
+    };
+
+    const zoomBehavior = d3
+      .zoom<SVGRectElement, unknown>()
+      .extent([
+        [0, 0],
+        [innerWidth, innerHeight],
+      ])
+      .translateExtent([
+        [0, 0],
+        [innerWidth, innerHeight],
+      ])
+      .scaleExtent([1, Math.max(1, Math.min(40, chartData.length))])
+      .on("start", () => {
+        captureRect.classed("is-panning", true);
+        hideHoverState();
+      })
+      .on("zoom", (event) => {
+        renderZoomedChart(event.transform.rescaleX(baseXScale), event.transform);
+      })
+      .on("end", () => {
+        captureRect.classed("is-panning", false);
+      });
+
+    captureRect
+      .call(zoomBehavior)
+      .call(zoomBehavior.transform, timelineZoomTransform)
+      .on("pointerdown", (event: PointerEvent) => {
+        pointerStart = [event.clientX, event.clientY];
+        pointerMoved = false;
+      })
+      .on("pointermove", function (event: PointerEvent) {
+        if (pointerStart) {
+          const distance = Math.hypot(
+            event.clientX - pointerStart[0],
+            event.clientY - pointerStart[1],
+          );
+          pointerMoved = pointerMoved || distance > 4;
+        }
+
+        if (pointerMoved && event.buttons > 0) {
+          return;
+        }
+
+        const [mouseX] = d3.pointer(event, this);
+        const closestIndex = closestIndexForX(mouseX);
+
+        if (closestIndex !== currentHoverIndex) {
+          currentHoverIndex = closestIndex;
+          updateHoverMarkers(closestIndex);
+          previewHour(closestIndex);
+        }
+
+        showChartTooltip(chartData[closestIndex]);
+      })
+      .on("pointerup", () => {
+        pointerStart = null;
+      })
+      .on("pointerleave", () => {
+        pointerStart = null;
+        pointerMoved = false;
+        hideHoverState();
+        restoreSelectedHour();
+      })
+      .on("click", function (event: MouseEvent) {
+        if (pointerMoved) {
+          pointerMoved = false;
+          return;
+        }
+
+        const [mouseX] = d3.pointer(event, this);
+        commitHour(closestIndexForX(mouseX));
       });
 
     if (controls.legendContainer) {
@@ -1342,6 +1468,8 @@ export async function appendWeatherOverlay(
       renderedHourIndex = -1;
       controls.slider.value = `${committedRenderHourIndex}`;
       updateStepMarks(controls.stepMarks, dataset.hours);
+      visibleTimelineDomain = null;
+      timelineZoomTransform = d3.zoomIdentity;
 
       renderHour(overlay, dataset, committedRenderHourIndex, activeVariableKey);
       renderedHourIndex = committedRenderHourIndex;

@@ -192,6 +192,26 @@
         height: auto;
     }
 
+    .weather-timeline-svg {
+        overflow: visible;
+        user-select: none;
+    }
+
+    .weather-chart-zoom-capture {
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .weather-chart-zoom-capture.is-panning {
+        cursor: grabbing;
+    }
+
+    .weather-timeline .x-axis text {
+        paint-order: stroke;
+        stroke: rgba(18, 28, 24, 0.78);
+        stroke-width: 2px;
+    }
+
     .weather-chart-tooltip {
         background: rgba(15, 23, 42, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.15);
