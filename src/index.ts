@@ -30,6 +30,7 @@ const g = map_svg.append("g");
 const LOCAL_STATIONS_ZOOM_LEVEL = 2;
 let currentZoomTransform = d3.zoomIdentity;
 let focusedState: string | null = null;
+const focusedStateListeners = new Set<(state: string | null) => void>();
 let isClickFocusing = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
@@ -330,12 +331,22 @@ function transformForState(state: string) {
   return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
 }
 
+function notifyFocusedStateChanged() {
+  focusedStateListeners.forEach((listener) => listener(focusedState));
+}
+
 function focusState(state: string | null, zoomToState = false) {
   if (focusedState === state && !zoomToState) {
     return;
   }
 
+  const stateChanged = focusedState !== state;
   focusedState = state;
+
+  if (stateChanged) {
+    notifyFocusedStateChanged();
+  }
+
   updateMapVisibility();
   renderTrainNetwork();
   tooltip.style("display", "none");
@@ -641,6 +652,16 @@ function setupStationFilterPanel() {
     );
   }
 
+  function syncListToFocusedState(state: string | null) {
+    if (selectedState === state) {
+      return;
+    }
+
+    selectedState = state;
+    selectedRegion = null;
+    renderStationList();
+  }
+
   function makeDrillRow(
     label: string,
     count: number,
@@ -779,10 +800,7 @@ function setupStationFilterPanel() {
       stateRows.forEach(({ name, count }) => {
         list.append(
           makeDrillRow(name, count, () => {
-            selectedState = name;
-            selectedRegion = null;
             focusState(name, true);
-            renderStationList();
           }),
         );
       });
@@ -800,10 +818,7 @@ function setupStationFilterPanel() {
     if (!selectedRegion) {
       list.append(
         makeBackButton("Back to Bundesland", () => {
-          selectedState = null;
-          selectedRegion = null;
           focusState(null, false);
-          renderStationList();
         }),
       );
 
@@ -879,6 +894,8 @@ function setupStationFilterPanel() {
     renderTrainNetwork();
     renderStationList();
   });
+  focusedStateListeners.add(syncListToFocusedState);
+  syncListToFocusedState(focusedState);
 
   renderStationList();
 }
