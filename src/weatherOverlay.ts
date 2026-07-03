@@ -441,11 +441,11 @@ function dispatchSelectedDateChange(
   );
 }
 
-function dispatchWeatherDatePreview(selectedDate: Date) {
+function dispatchWeatherDatePreview(selectedDate: Date | null) {
   document.dispatchEvent(
     new CustomEvent(WEATHER_DATE_PREVIEW_EVENT, {
       detail: {
-        selected: toDateInputValue(selectedDate),
+        selected: selectedDate ? toDateInputValue(selectedDate) : null,
       },
     }),
   );
@@ -1400,7 +1400,7 @@ export async function appendWeatherOverlay(
     controls.slider.value = `${restoreIndex}`;
     renderHour(overlay, activeDataset, restoreIndex, activeVariableKey);
     renderedHourIndex = restoreIndex;
-    dispatchWeatherDatePreview(activeDataset.hours[restoreIndex].time);
+    dispatchWeatherDatePreview(null);
 
     drawTimelineChart();
   };
@@ -1530,9 +1530,7 @@ export async function appendWeatherOverlay(
     updateData: (visibleStationNames, focusedState, dailyDelayTrips) => {
       currentVisibleStationNames = visibleStationNames;
       currentFocusedState = focusedState;
-      if (dailyDelayTrips !== null) {
-        currentDailyDelayTrips = dailyDelayTrips;
-      }
+      currentDailyDelayTrips = dailyDelayTrips;
       drawTimelineChart();
     },
   };

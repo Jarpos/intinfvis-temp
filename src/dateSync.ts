@@ -16,5 +16,5 @@ export type SelectedDateChangeDetail = {
 };
 
 export type WeatherDatePreviewDetail = {
-  selected: string;
+  selected: string | null;
 };
