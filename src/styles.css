@@ -208,8 +208,9 @@
 
     .weather-timeline .x-axis text {
         paint-order: stroke;
-        stroke: rgba(18, 28, 24, 0.78);
-        stroke-width: 2px;
+        stroke: rgba(0, 0, 0, 0.86);
+        stroke-width: 3px;
+        stroke-linejoin: round;
     }
 
     .weather-chart-tooltip {

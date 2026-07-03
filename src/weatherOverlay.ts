@@ -569,7 +569,10 @@ type WeatherChartDatum = ReturnType<typeof getChartData>[number];
 type TimeDomain = [Date, Date];
 
 const TIMELINE_AXIS_PLOT_GAP = 14;
-const TIMELINE_AXIS_COLUMN_GAP = 35;
+const TIMELINE_AXIS_COLUMN_WIDTH = 48;
+const TIMELINE_AXIS_COLUMN_GAP = 4;
+const TIMELINE_AXIS_COLUMN_STEP =
+  TIMELINE_AXIS_COLUMN_WIDTH + TIMELINE_AXIS_COLUMN_GAP;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function paddedTimelineDomain(chartData: WeatherChartDatum[]): TimeDomain {
@@ -617,7 +620,8 @@ function clampVisibleTimeDomain(
     return fullDomain;
   }
 
-  const requestedDuration = visibleDomain[1].getTime() - visibleDomain[0].getTime();
+  const requestedDuration =
+    visibleDomain[1].getTime() - visibleDomain[0].getTime();
   const duration = Math.max(1, Math.min(fullDuration, requestedDuration));
   const minStart = fullStart;
   const maxStart = fullEnd - duration;
@@ -633,7 +637,9 @@ function zoomTransformForTimeDomain(
   baseXScale: d3.ScaleTime<number, number>,
   visibleDomain: TimeDomain,
 ): d3.ZoomTransform {
-  const [fullStart, fullEnd] = baseXScale.domain().map((date) => date.getTime());
+  const [fullStart, fullEnd] = baseXScale
+    .domain()
+    .map((date) => date.getTime());
   const visibleDuration =
     visibleDomain[1].getTime() - visibleDomain[0].getTime();
   const fullDuration = fullEnd - fullStart;
@@ -672,13 +678,18 @@ function timelineTickValues(
   }
 
   const minLabelSpacing = 82;
-  const step = Math.max(1, Math.ceil((ticks.length * minLabelSpacing) / innerWidth));
+  const step = Math.max(
+    1,
+    Math.ceil((ticks.length * minLabelSpacing) / innerWidth),
+  );
 
   if (step === 1) {
     return ticks;
   }
 
-  return ticks.filter((_, index) => index % step === 0 || index === ticks.length - 1);
+  return ticks.filter(
+    (_, index) => index % step === 0 || index === ticks.length - 1,
+  );
 }
 
 function formatTimelineTick(date: Date) {
@@ -780,7 +791,7 @@ export async function appendWeatherOverlay(
     const width = rect.width || 800;
     const height = rect.height || 180;
 
-    const margin = { top: 25, right: 100, bottom: 25, left: 110 };
+    const margin = { top: 28, right: 118, bottom: 25, left: 174 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
 
@@ -902,34 +913,54 @@ export async function appendWeatherOverlay(
       axisG: d3.Selection<SVGGElement, unknown, null, undefined>,
       ticks: number[],
       scale: d3.ScaleLinear<number, number>,
-      xOffset: number,
+      rightEdgeX: number,
       labelText: string,
+      accentColor: string,
       formatFn: (v: number) => string,
     ) => {
       const colG = axisG
         .append("g")
-        .attr("transform", `translate(${xOffset}, 0)`);
+        .attr("transform", `translate(${rightEdgeX}, 0)`);
+      const textX = -TIMELINE_AXIS_COLUMN_WIDTH / 2;
+
+      colG
+        .append("rect")
+        .attr("x", -TIMELINE_AXIS_COLUMN_WIDTH)
+        .attr("y", -23)
+        .attr("width", TIMELINE_AXIS_COLUMN_WIDTH)
+        .attr("height", innerHeight + 28)
+        .attr("rx", 6)
+        .attr("fill", accentColor)
+        .attr("opacity", 1);
 
       colG
         .append("text")
-        .attr("transform", "rotate(-90)")
-        .attr("y", -20)
-        .attr("x", -innerHeight / 2)
+        .attr("x", textX)
+        .attr("y", -11)
         .attr("text-anchor", "middle")
-        .attr("fill", "rgba(255, 255, 255, 0.4)")
+        .attr("fill", "rgba(255, 255, 255, 0.86)")
+        .attr("stroke", "rgba(0, 0, 0, 0.86)")
+        .attr("stroke-width", 3)
+        .attr("stroke-linejoin", "round")
+        .attr("paint-order", "stroke")
         .style("font-size", "10px")
-        .style("font-weight", "600")
+        .style("font-weight", "700")
         .text(labelText);
 
       ticks.forEach((val) => {
         colG
           .append("text")
-          .attr("x", 0)
+          .attr("x", textX)
           .attr("y", scale(val))
           .attr("dy", "0.35em")
-          .attr("text-anchor", "end")
-          .attr("fill", "rgba(255, 255, 255, 0.6)")
+          .attr("text-anchor", "middle")
+          .attr("fill", "rgba(255, 255, 255, 0.78)")
+          .attr("stroke", "rgba(0, 0, 0, 0.86)")
+          .attr("stroke-width", 3)
+          .attr("stroke-linejoin", "round")
+          .attr("paint-order", "stroke")
           .style("font-size", "10px")
+          .style("font-weight", "600")
           .text(formatFn(val));
       });
     };
@@ -938,34 +969,54 @@ export async function appendWeatherOverlay(
       axisG: d3.Selection<SVGGElement, unknown, null, undefined>,
       ticks: number[],
       scale: d3.ScaleLinear<number, number>,
-      xOffset: number,
+      leftEdgeX: number,
       labelText: string,
+      accentColor: string,
       formatFn: (v: number) => string,
     ) => {
       const colG = axisG
         .append("g")
-        .attr("transform", `translate(${xOffset}, 0)`);
+        .attr("transform", `translate(${leftEdgeX}, 0)`);
+      const textX = TIMELINE_AXIS_COLUMN_WIDTH / 2;
+
+      colG
+        .append("rect")
+        .attr("x", 0)
+        .attr("y", -23)
+        .attr("width", TIMELINE_AXIS_COLUMN_WIDTH)
+        .attr("height", innerHeight + 28)
+        .attr("rx", 6)
+        .attr("fill", accentColor)
+        .attr("opacity", 1);
 
       colG
         .append("text")
-        .attr("transform", "rotate(-90)")
-        .attr("y", 30)
-        .attr("x", -innerHeight / 2)
+        .attr("x", textX)
+        .attr("y", -11)
         .attr("text-anchor", "middle")
-        .attr("fill", "rgba(255, 255, 255, 0.4)")
+        .attr("fill", "rgba(255, 255, 255, 0.9)")
+        .attr("stroke", "rgba(0, 0, 0, 0.86)")
+        .attr("stroke-width", 3)
+        .attr("stroke-linejoin", "round")
+        .attr("paint-order", "stroke")
         .style("font-size", "10px")
-        .style("font-weight", "600")
+        .style("font-weight", "700")
         .text(labelText);
 
       ticks.forEach((val) => {
         colG
           .append("text")
-          .attr("x", 0)
+          .attr("x", textX)
           .attr("y", scale(val))
           .attr("dy", "0.35em")
-          .attr("text-anchor", "start")
-          .attr("fill", "rgba(255, 255, 255, 0.6)")
+          .attr("text-anchor", "middle")
+          .attr("fill", "rgba(255, 255, 255, 0.82)")
+          .attr("stroke", "rgba(0, 0, 0, 0.86)")
+          .attr("stroke-width", 3)
+          .attr("stroke-linejoin", "round")
+          .attr("paint-order", "stroke")
           .style("font-size", "10px")
+          .style("font-weight", "600")
           .text(formatFn(val));
       });
     };
@@ -980,16 +1031,21 @@ export async function appendWeatherOverlay(
       leftAxesG,
       ticksSnow,
       yScaleSnow,
-      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP * 2),
+      -(
+        TIMELINE_AXIS_PLOT_GAP +
+        TIMELINE_AXIS_COLUMN_STEP * 2
+      ),
       "cm",
+      "#ffffff",
       formatVal,
     );
     drawLeftAxisColumn(
       leftAxesG,
       ticksPrecip,
       yScalePrecip,
-      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP),
+      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_STEP),
       "mm",
+      "#3b82f6",
       formatVal,
     );
     drawLeftAxisColumn(
@@ -998,6 +1054,7 @@ export async function appendWeatherOverlay(
       yScaleTemp,
       -TIMELINE_AXIS_PLOT_GAP,
       "°C",
+      "#fbbf24",
       formatVal,
     );
 
@@ -1008,14 +1065,16 @@ export async function appendWeatherOverlay(
       yScaleCount,
       innerWidth + TIMELINE_AXIS_PLOT_GAP,
       "count",
+      "#818cf8",
       formatVal,
     );
     drawRightAxisColumn(
       rightAxesG,
       ticksDelay,
       yScaleDelay,
-      innerWidth + TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_GAP,
+      innerWidth + TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_STEP,
       "min",
+      "#c084fc",
       formatVal,
     );
 
@@ -1041,7 +1100,9 @@ export async function appendWeatherOverlay(
       .join("rect")
       .attr("class", (d) => `delay-bar delay-count-bar day-${d.index}`)
       .attr("y", (d) => yScaleCount(d.delaysCount))
-      .attr("height", (d) => Math.max(0, innerHeight - yScaleCount(d.delaysCount)))
+      .attr("height", (d) =>
+        Math.max(0, innerHeight - yScaleCount(d.delaysCount)),
+      )
       .attr("fill", "#818cf8")
       .attr("rx", 1)
       .attr("opacity", 0.7);
@@ -1055,7 +1116,9 @@ export async function appendWeatherOverlay(
       .join("rect")
       .attr("class", (d) => `delay-bar delay-avg-bar day-${d.index}`)
       .attr("y", (d) => yScaleDelay(d.avgDelayMin))
-      .attr("height", (d) => Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)))
+      .attr("height", (d) =>
+        Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)),
+      )
       .attr("fill", "#c084fc")
       .attr("rx", 1)
       .attr("opacity", 0.7);
@@ -1301,6 +1364,10 @@ export async function appendWeatherOverlay(
           axisG
             .selectAll(".tick text")
             .attr("fill", "rgba(255, 255, 255, 0.6)")
+            .attr("stroke", "rgba(0, 0, 0, 0.86)")
+            .attr("stroke-width", 3)
+            .attr("stroke-linejoin", "round")
+            .attr("paint-order", "stroke")
             .style("font-size", "10px"),
         );
 
@@ -1359,7 +1426,10 @@ export async function appendWeatherOverlay(
         hideHoverState();
       })
       .on("zoom", (event) => {
-        renderZoomedChart(event.transform.rescaleX(baseXScale), event.transform);
+        renderZoomedChart(
+          event.transform.rescaleX(baseXScale),
+          event.transform,
+        );
       })
       .on("end", () => {
         captureRect.classed("is-panning", false);
