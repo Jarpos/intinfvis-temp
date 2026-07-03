@@ -398,57 +398,6 @@ function stateAtScreenPoint(point: [number, number]) {
   return containingFeature ? stateName(containingFeature) : null;
 }
 
-function regionBoundsIntersectViewport(feature: GeoJSON.Feature, padding = 64) {
-  const [[minX, minY], [maxX, maxY]] = geoPath.bounds(feature);
-  const screenMinX = currentZoomTransform.applyX(minX);
-  const screenMaxX = currentZoomTransform.applyX(maxX);
-  const screenMinY = currentZoomTransform.applyY(minY);
-  const screenMaxY = currentZoomTransform.applyY(maxY);
-
-  return (
-    screenMaxX >= -padding &&
-    screenMinX <= WIDTH + padding &&
-    screenMaxY >= -padding &&
-    screenMinY <= HEIGHT + padding
-  );
-}
-
-function visibleRegionKeys() {
-  const visibleRegions = new Set<string>();
-
-  geojson.features.forEach((feature) => {
-    if (!regionBoundsIntersectViewport(feature)) {
-      return;
-    }
-
-    const properties = feature.properties as {
-      NAME_1?: string;
-      NAME_2?: string;
-    } | null;
-    const key = regionKey(properties?.NAME_1, properties?.NAME_2);
-
-    if (key) {
-      visibleRegions.add(key);
-    }
-  });
-
-  return visibleRegions;
-}
-
-function stationIsInViewport(station: Station) {
-  const projected = projection(station.coords as [number, number]);
-
-  if (!projected) {
-    return false;
-  }
-
-  const [x, y] = projected;
-  const screenX = currentZoomTransform.applyX(x);
-  const screenY = currentZoomTransform.applyY(y);
-
-  return screenX >= 0 && screenX <= WIDTH && screenY >= 0 && screenY <= HEIGHT;
-}
-
 function mergeStationsByEva(...stationGroups: Station[][]) {
   const stationsByEva = new Map<number, Station>();
 
@@ -531,9 +480,6 @@ function renderTrainNetwork() {
   requestTrainDelayConnections();
 
   const shouldShowLocalStations = !!focusedState;
-  const localVisibleRegionKeys = shouldShowLocalStations
-    ? visibleRegionKeys()
-    : null;
   const visibleIcStations = icStations.filter((station) => {
     if (!selectedStationNames.has(station.name)) {
       return false;
@@ -555,13 +501,7 @@ function renderTrainNetwork() {
           return false;
         }
 
-        const key = regionKey(station.state, station.region);
-
-        if (!key || !localVisibleRegionKeys?.has(key)) {
-          return false;
-        }
-
-        return stationIsInViewport(station);
+        return true;
       })
     : [];
   const visibleStations = mergeStationsByEva(
