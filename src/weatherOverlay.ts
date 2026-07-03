@@ -46,7 +46,7 @@ export type WeatherOverlayController = {
   updateData: (
     visibleStationNames: Set<string>,
     focusedState: string | null,
-    dailyDelayTrips: { [date: string]: DelayTrip[] } | null
+    dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
   ) => void;
 };
 
@@ -203,7 +203,14 @@ function createTimeline() {
   const timeBubble = document.createElement("div");
   timeBubble.style.display = "none";
 
-  return { slider, sliderWrap, stepMarks, timeBubble, chartContainer, legendContainer };
+  return {
+    slider,
+    sliderWrap,
+    stepMarks,
+    timeBubble,
+    chartContainer,
+    legendContainer,
+  };
 }
 
 function formatDayName(date: Date) {
@@ -416,7 +423,6 @@ function renderHour(
     .attr("data-temperature", (d) => d.rawValue.toFixed(1))
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
-
 }
 
 function dispatchSelectedDateChange(
@@ -488,21 +494,23 @@ function getChartData(
   dataset: WeatherDataset,
   visibleStationNames: Set<string>,
   focusedState: string | null,
-  dailyDelayTrips: { [date: string]: DelayTrip[] } | null
+  dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
 ) {
   let activePoints = dataset.points;
   if (focusedState) {
-    const stateFeatures = geojson.features.filter(f => stateName(f) === focusedState);
+    const stateFeatures = geojson.features.filter(
+      (f) => stateName(f) === focusedState,
+    );
     if (stateFeatures.length > 0) {
-      const filtered = dataset.points.filter(p => 
-        stateFeatures.some(f => d3.geoContains(f, [p.longitude, p.latitude]))
+      const filtered = dataset.points.filter((p) =>
+        stateFeatures.some((f) => d3.geoContains(f, [p.longitude, p.latitude])),
       );
       if (filtered.length > 0) {
         activePoints = filtered;
       }
     }
   }
-  const activeIndices = activePoints.map(p => dataset.points.indexOf(p));
+  const activeIndices = activePoints.map((p) => dataset.points.indexOf(p));
 
   const formatDateKey = (date: Date) => {
     const year = date.getFullYear();
@@ -512,9 +520,15 @@ function getChartData(
   };
 
   return dataset.hours.map((hour, dayIndex) => {
-    const temps = activeIndices.map(idx => hour.temperature_2m[idx]).filter(Number.isFinite);
-    const precips = activeIndices.map(idx => hour.precipitation[idx]).filter(Number.isFinite);
-    const snows = activeIndices.map(idx => hour.snow_depth[idx]).filter(Number.isFinite);
+    const temps = activeIndices
+      .map((idx) => hour.temperature_2m[idx])
+      .filter(Number.isFinite);
+    const precips = activeIndices
+      .map((idx) => hour.precipitation[idx])
+      .filter(Number.isFinite);
+    const snows = activeIndices
+      .map((idx) => hour.snow_depth[idx])
+      .filter(Number.isFinite);
 
     const avgTemp = temps.length > 0 ? d3.mean(temps)! : 0;
     const avgPrecip = precips.length > 0 ? d3.mean(precips)! : 0;
@@ -527,14 +541,16 @@ function getChartData(
     if (dailyDelayTrips && dailyDelayTrips[dateStr]) {
       const trips = dailyDelayTrips[dateStr];
       const dailyConnections = aggregateDelayConnections(trips);
-      const visibleConnections = dailyConnections.filter(c => 
-        visibleStationNames.has(c.source.name) && 
-        visibleStationNames.has(c.target.name)
+      const visibleConnections = dailyConnections.filter(
+        (c) =>
+          visibleStationNames.has(c.source.name) &&
+          visibleStationNames.has(c.target.name),
       );
 
-      const delayed = visibleConnections.filter(c => c.delay >= 60);
+      const delayed = visibleConnections.filter((c) => c.delay >= 60);
       delaysCount = delayed.length;
-      avgDelayMin = delayed.length > 0 ? d3.mean(delayed, c => c.delay)! / 60 : 0;
+      avgDelayMin =
+        delayed.length > 0 ? d3.mean(delayed, (c) => c.delay)! / 60 : 0;
     }
 
     return {
@@ -560,12 +576,13 @@ export async function appendWeatherOverlay(
   updateLegend(legendTitle, legendTicks, WEATHER_VARIABLES[activeVariableKey]);
 
   const controls = createTimeline();
-  
+
   let currentVisibleStationNames: Set<string> = new Set();
   let currentFocusedState: string | null = null;
   let currentDailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
 
-  const chartTooltip = d3.select(document.createElement("div"))
+  const chartTooltip = d3
+    .select(document.createElement("div"))
     .attr("class", "weather-chart-tooltip")
     .style("position", "absolute")
     .style("pointer-events", "none")
@@ -594,23 +611,23 @@ export async function appendWeatherOverlay(
       <div style="display: flex; flex-direction: column; gap: 7px; font-size: 11px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #fbbf24;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">temperature_2m_mean</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">temperature</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #3b82f6;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">precipitation_sum</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">precipitation</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #ffffff;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">snowfall_sum</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">snowfall</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 4px;">
           <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #818cf8;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">delays_count</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">delays count</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #c084fc;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">avg_delay</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">avg delay</span>
         </div>
       </div>
     `;
@@ -625,7 +642,7 @@ export async function appendWeatherOverlay(
       activeDataset,
       currentVisibleStationNames,
       currentFocusedState,
-      currentDailyDelayTrips
+      currentDailyDelayTrips,
     );
 
     const container = controls.chartContainer;
@@ -643,17 +660,19 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    const svgElement = d3.select(container)
+    const svgElement = d3
+      .select(container)
       .append("svg")
       .attr("width", width)
       .attr("height", height)
       .style("display", "block");
 
-    const chartSvg = svgElement.append("g")
+    const chartSvg = svgElement
+      .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
     // 1. Calculate Nice Y Domains
-    const tempExtent = d3.extent(chartData, d => d.temp);
+    const tempExtent = d3.extent(chartData, (d) => d.temp);
     let tempMin = tempExtent[0] !== undefined ? tempExtent[0] : 12;
     let tempMax = tempExtent[1] !== undefined ? tempExtent[1] : 27;
     if (Math.abs(tempMax - tempMin) < 0.1) {
@@ -663,38 +682,72 @@ export async function appendWeatherOverlay(
     const tempScaleNice = d3.scaleLinear().domain([tempMin, tempMax]).nice(5);
     const [niceTempMin, niceTempMax] = tempScaleNice.domain();
 
-    const precipMax = d3.max(chartData, d => d.precip) || 2;
-    const nicePrecipMax = d3.scaleLinear().domain([0, precipMax]).nice(5).domain()[1];
+    const precipMax = d3.max(chartData, (d) => d.precip) || 2;
+    const nicePrecipMax = d3
+      .scaleLinear()
+      .domain([0, precipMax])
+      .nice(5)
+      .domain()[1];
 
-    const snowMax = d3.max(chartData, d => d.snow) || 5;
-    const niceSnowMax = d3.scaleLinear().domain([0, snowMax]).nice(5).domain()[1];
+    const snowMax = d3.max(chartData, (d) => d.snow) || 5;
+    const niceSnowMax = d3
+      .scaleLinear()
+      .domain([0, snowMax])
+      .nice(5)
+      .domain()[1];
 
-    const countMax = d3.max(chartData, d => d.delaysCount) || 5;
-    const niceCountMax = d3.scaleLinear().domain([0, countMax]).nice(5).domain()[1];
+    const countMax = d3.max(chartData, (d) => d.delaysCount) || 5;
+    const niceCountMax = d3
+      .scaleLinear()
+      .domain([0, countMax])
+      .nice(5)
+      .domain()[1];
 
-    const delayMinMax = d3.max(chartData, d => d.avgDelayMin) || 5;
-    const niceDelayMax = d3.scaleLinear().domain([0, delayMinMax]).nice(5).domain()[1];
+    const delayMinMax = d3.max(chartData, (d) => d.avgDelayMin) || 5;
+    const niceDelayMax = d3
+      .scaleLinear()
+      .domain([0, delayMinMax])
+      .nice(5)
+      .domain()[1];
 
     // 2. Define Y Scales
-    const yScaleTemp = d3.scaleLinear().domain([niceTempMin, niceTempMax]).range([innerHeight, 0]);
-    const yScalePrecip = d3.scaleLinear().domain([0, nicePrecipMax]).range([innerHeight, 0]);
-    const yScaleSnow = d3.scaleLinear().domain([0, niceSnowMax]).range([innerHeight, 0]);
-    const yScaleCount = d3.scaleLinear().domain([0, niceCountMax]).range([innerHeight, 0]);
-    const yScaleDelay = d3.scaleLinear().domain([0, niceDelayMax]).range([innerHeight, 0]);
+    const yScaleTemp = d3
+      .scaleLinear()
+      .domain([niceTempMin, niceTempMax])
+      .range([innerHeight, 0]);
+    const yScalePrecip = d3
+      .scaleLinear()
+      .domain([0, nicePrecipMax])
+      .range([innerHeight, 0]);
+    const yScaleSnow = d3
+      .scaleLinear()
+      .domain([0, niceSnowMax])
+      .range([innerHeight, 0]);
+    const yScaleCount = d3
+      .scaleLinear()
+      .domain([0, niceCountMax])
+      .range([innerHeight, 0]);
+    const yScaleDelay = d3
+      .scaleLinear()
+      .domain([0, niceDelayMax])
+      .range([innerHeight, 0]);
 
     // 3. Generate equally spaced tick values for perfect alignment
     const tickIndices = [0, 1, 2, 3, 4, 5];
-    const ticksTemp = tickIndices.map(i => niceTempMin + (i * (niceTempMax - niceTempMin)) / 5);
-    const ticksPrecip = tickIndices.map(i => 0 + (i * nicePrecipMax) / 5);
-    const ticksSnow = tickIndices.map(i => 0 + (i * niceSnowMax) / 5);
-    const ticksCount = tickIndices.map(i => 0 + (i * niceCountMax) / 5);
-    const ticksDelay = tickIndices.map(i => 0 + (i * niceDelayMax) / 5);
+    const ticksTemp = tickIndices.map(
+      (i) => niceTempMin + (i * (niceTempMax - niceTempMin)) / 5,
+    );
+    const ticksPrecip = tickIndices.map((i) => 0 + (i * nicePrecipMax) / 5);
+    const ticksSnow = tickIndices.map((i) => 0 + (i * niceSnowMax) / 5);
+    const ticksCount = tickIndices.map((i) => 0 + (i * niceCountMax) / 5);
+    const ticksDelay = tickIndices.map((i) => 0 + (i * niceDelayMax) / 5);
 
     // 4. Draw Horizontal Grid Lines
     const gridG = chartSvg.append("g").attr("class", "grid-lines");
-    tickIndices.forEach(i => {
+    tickIndices.forEach((i) => {
       const y = (i / 5) * innerHeight;
-      gridG.append("line")
+      gridG
+        .append("line")
         .attr("x1", 0)
         .attr("y1", y)
         .attr("x2", innerWidth)
@@ -704,10 +757,20 @@ export async function appendWeatherOverlay(
     });
 
     // 5. Draw Y-Axes Columns Left
-    const drawLeftAxisColumn = (axisG: any, ticks: number[], scale: any, xOffset: number, labelText: string, formatFn: (v: number) => string) => {
-      const colG = axisG.append("g").attr("transform", `translate(${xOffset}, 0)`);
-      
-      colG.append("text")
+    const drawLeftAxisColumn = (
+      axisG: any,
+      ticks: number[],
+      scale: any,
+      xOffset: number,
+      labelText: string,
+      formatFn: (v: number) => string,
+    ) => {
+      const colG = axisG
+        .append("g")
+        .attr("transform", `translate(${xOffset}, 0)`);
+
+      colG
+        .append("text")
         .attr("transform", "rotate(-90)")
         .attr("y", -20)
         .attr("x", -innerHeight / 2)
@@ -717,8 +780,9 @@ export async function appendWeatherOverlay(
         .style("font-weight", "600")
         .text(labelText);
 
-      ticks.forEach(val => {
-        colG.append("text")
+      ticks.forEach((val) => {
+        colG
+          .append("text")
           .attr("x", 0)
           .attr("y", scale(val))
           .attr("dy", "0.35em")
@@ -736,14 +800,31 @@ export async function appendWeatherOverlay(
 
     const leftAxesG = chartSvg.append("g").attr("class", "y-axes-left");
     drawLeftAxisColumn(leftAxesG, ticksSnow, yScaleSnow, -80, "cm", formatVal);
-    drawLeftAxisColumn(leftAxesG, ticksPrecip, yScalePrecip, -45, "mm", formatVal);
+    drawLeftAxisColumn(
+      leftAxesG,
+      ticksPrecip,
+      yScalePrecip,
+      -45,
+      "mm",
+      formatVal,
+    );
     drawLeftAxisColumn(leftAxesG, ticksTemp, yScaleTemp, -10, "°C", formatVal);
 
     // 6. Draw Y-Axes Columns Right
-    const drawRightAxisColumn = (axisG: any, ticks: number[], scale: any, xOffset: number, labelText: string, formatFn: (v: number) => string) => {
-      const colG = axisG.append("g").attr("transform", `translate(${xOffset}, 0)`);
-      
-      colG.append("text")
+    const drawRightAxisColumn = (
+      axisG: any,
+      ticks: number[],
+      scale: any,
+      xOffset: number,
+      labelText: string,
+      formatFn: (v: number) => string,
+    ) => {
+      const colG = axisG
+        .append("g")
+        .attr("transform", `translate(${xOffset}, 0)`);
+
+      colG
+        .append("text")
         .attr("transform", "rotate(-90)")
         .attr("y", 30)
         .attr("x", -innerHeight / 2)
@@ -753,8 +834,9 @@ export async function appendWeatherOverlay(
         .style("font-weight", "600")
         .text(labelText);
 
-      ticks.forEach(val => {
-        colG.append("text")
+      ticks.forEach((val) => {
+        colG
+          .append("text")
           .attr("x", 15)
           .attr("y", scale(val))
           .attr("dy", "0.35em")
@@ -766,17 +848,38 @@ export async function appendWeatherOverlay(
     };
 
     const rightAxesG = chartSvg.append("g").attr("class", "y-axes-right");
-    drawRightAxisColumn(rightAxesG, ticksCount, yScaleCount, innerWidth + 10, "count", formatVal);
-    drawRightAxisColumn(rightAxesG, ticksDelay, yScaleDelay, innerWidth + 45, "min", formatVal);
+    drawRightAxisColumn(
+      rightAxesG,
+      ticksCount,
+      yScaleCount,
+      innerWidth + 10,
+      "count",
+      formatVal,
+    );
+    drawRightAxisColumn(
+      rightAxesG,
+      ticksDelay,
+      yScaleDelay,
+      innerWidth + 45,
+      "min",
+      formatVal,
+    );
 
     // 7. Define X Scale
-    const xScale = d3.scaleTime()
-      .domain([d3.min(chartData, d => d.time)!, d3.max(chartData, d => d.time)!])
+    const xScale = d3
+      .scaleTime()
+      .domain([
+        d3.min(chartData, (d) => d.time)!,
+        d3.max(chartData, (d) => d.time)!,
+      ])
       .range([0, innerWidth]);
 
     // 8. Draw X Axis
-    const showYear = d3.min(chartData, x => x.time.getFullYear()) !== d3.max(chartData, x => x.time.getFullYear());
-    const xAxis = d3.axisBottom(xScale)
+    const showYear =
+      d3.min(chartData, (x) => x.time.getFullYear()) !==
+      d3.max(chartData, (x) => x.time.getFullYear());
+    const xAxis = d3
+      .axisBottom(xScale)
       .ticks(chartData.length)
       .tickFormat((d) => {
         const date = d as Date;
@@ -789,15 +892,22 @@ export async function appendWeatherOverlay(
         return `${day}.${month}.`;
       });
 
-    chartSvg.append("g")
+    chartSvg
+      .append("g")
       .attr("class", "x-axis")
       .attr("transform", `translate(0, ${innerHeight})`)
       .call(xAxis)
-      .call(g => g.select(".domain").attr("stroke", "rgba(255, 255, 255, 0.15)"))
-      .call(g => g.selectAll(".tick line").attr("stroke", "rgba(255, 255, 255, 0.15)"))
-      .call(g => g.selectAll(".tick text")
-        .attr("fill", "rgba(255, 255, 255, 0.6)")
-        .style("font-size", "10px")
+      .call((g) =>
+        g.select(".domain").attr("stroke", "rgba(255, 255, 255, 0.15)"),
+      )
+      .call((g) =>
+        g.selectAll(".tick line").attr("stroke", "rgba(255, 255, 255, 0.15)"),
+      )
+      .call((g) =>
+        g
+          .selectAll(".tick text")
+          .attr("fill", "rgba(255, 255, 255, 0.6)")
+          .style("font-size", "10px"),
       );
 
     // 9. Draw Delay Bars (Grouped)
@@ -806,7 +916,8 @@ export async function appendWeatherOverlay(
     chartData.forEach((d, dayIndex) => {
       // Delays Count Bar (left)
       if (d.delaysCount > 0) {
-        barG.append("rect")
+        barG
+          .append("rect")
           .attr("class", `delay-bar day-${dayIndex}`)
           .attr("x", xScale(d.time) - barWidth)
           .attr("y", yScaleCount(d.delaysCount))
@@ -816,10 +927,11 @@ export async function appendWeatherOverlay(
           .attr("rx", 1)
           .attr("opacity", 0.7);
       }
-      
+
       // Avg Delay Bar (right)
       if (d.avgDelayMin > 0) {
-        barG.append("rect")
+        barG
+          .append("rect")
           .attr("class", `delay-bar day-${dayIndex}`)
           .attr("x", xScale(d.time))
           .attr("y", yScaleDelay(d.avgDelayMin))
@@ -832,14 +944,24 @@ export async function appendWeatherOverlay(
     });
 
     // 10. Draw Weather Lines
-    const lineTemp = d3.line<any>().x(d => xScale(d.time)).y(d => yScaleTemp(d.temp));
-    const linePrecip = d3.line<any>().x(d => xScale(d.time)).y(d => yScalePrecip(d.precip));
-    const lineSnow = d3.line<any>().x(d => xScale(d.time)).y(d => yScaleSnow(d.snow));
+    const lineTemp = d3
+      .line<any>()
+      .x((d) => xScale(d.time))
+      .y((d) => yScaleTemp(d.temp));
+    const linePrecip = d3
+      .line<any>()
+      .x((d) => xScale(d.time))
+      .y((d) => yScalePrecip(d.precip));
+    const lineSnow = d3
+      .line<any>()
+      .x((d) => xScale(d.time))
+      .y((d) => yScaleSnow(d.snow));
 
     const linesG = chartSvg.append("g").attr("class", "weather-lines");
-    
+
     // Precipitation (Blue)
-    linesG.append("path")
+    linesG
+      .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#3b82f6")
@@ -847,7 +969,8 @@ export async function appendWeatherOverlay(
       .attr("d", linePrecip);
 
     // Snowfall (White)
-    linesG.append("path")
+    linesG
+      .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#ffffff")
@@ -855,7 +978,8 @@ export async function appendWeatherOverlay(
       .attr("d", lineSnow);
 
     // Temperature (Yellow)
-    linesG.append("path")
+    linesG
+      .append("path")
       .datum(chartData)
       .attr("fill", "none")
       .attr("stroke", "#fbbf24")
@@ -864,14 +988,30 @@ export async function appendWeatherOverlay(
 
     // 11. Draw Data Points (Circles)
     const pointsG = chartSvg.append("g").attr("class", "weather-points");
-    chartData.forEach(d => {
-      pointsG.append("circle").attr("cx", xScale(d.time)).attr("cy", yScalePrecip(d.precip)).attr("r", 3.2).attr("fill", "#3b82f6");
-      pointsG.append("circle").attr("cx", xScale(d.time)).attr("cy", yScaleSnow(d.snow)).attr("r", 3.2).attr("fill", "#ffffff");
-      pointsG.append("circle").attr("cx", xScale(d.time)).attr("cy", yScaleTemp(d.temp)).attr("r", 3.2).attr("fill", "#fbbf24");
+    chartData.forEach((d) => {
+      pointsG
+        .append("circle")
+        .attr("cx", xScale(d.time))
+        .attr("cy", yScalePrecip(d.precip))
+        .attr("r", 3.2)
+        .attr("fill", "#3b82f6");
+      pointsG
+        .append("circle")
+        .attr("cx", xScale(d.time))
+        .attr("cy", yScaleSnow(d.snow))
+        .attr("r", 3.2)
+        .attr("fill", "#ffffff");
+      pointsG
+        .append("circle")
+        .attr("cx", xScale(d.time))
+        .attr("cy", yScaleTemp(d.temp))
+        .attr("r", 3.2)
+        .attr("fill", "#fbbf24");
     });
 
     // 12. Selection Line (orange)
-    const selectedLine = chartSvg.append("line")
+    const selectedLine = chartSvg
+      .append("line")
       .attr("y1", 0)
       .attr("y2", innerHeight)
       .attr("stroke", "#ff7a16")
@@ -889,7 +1029,8 @@ export async function appendWeatherOverlay(
     }
 
     // 13. Hover Elements
-    const hoverLine = chartSvg.append("line")
+    const hoverLine = chartSvg
+      .append("line")
       .attr("y1", 0)
       .attr("y2", innerHeight)
       .attr("stroke", "rgba(255, 255, 255, 0.5)")
@@ -897,13 +1038,32 @@ export async function appendWeatherOverlay(
       .style("display", "none")
       .attr("pointer-events", "none");
 
-    const hoverCirclesG = chartSvg.append("g").style("display", "none").attr("pointer-events", "none");
-    const hCircleTemp = hoverCirclesG.append("circle").attr("r", 5.5).attr("fill", "#fbbf24").attr("stroke", "#1e293b").attr("stroke-width", 1.5);
-    const hCirclePrecip = hoverCirclesG.append("circle").attr("r", 5.5).attr("fill", "#3b82f6").attr("stroke", "#1e293b").attr("stroke-width", 1.5);
-    const hCircleSnow = hoverCirclesG.append("circle").attr("r", 5.5).attr("fill", "#ffffff").attr("stroke", "#1e293b").attr("stroke-width", 1.5);
+    const hoverCirclesG = chartSvg
+      .append("g")
+      .style("display", "none")
+      .attr("pointer-events", "none");
+    const hCircleTemp = hoverCirclesG
+      .append("circle")
+      .attr("r", 5.5)
+      .attr("fill", "#fbbf24")
+      .attr("stroke", "#1e293b")
+      .attr("stroke-width", 1.5);
+    const hCirclePrecip = hoverCirclesG
+      .append("circle")
+      .attr("r", 5.5)
+      .attr("fill", "#3b82f6")
+      .attr("stroke", "#1e293b")
+      .attr("stroke-width", 1.5);
+    const hCircleSnow = hoverCirclesG
+      .append("circle")
+      .attr("r", 5.5)
+      .attr("fill", "#ffffff")
+      .attr("stroke", "#1e293b")
+      .attr("stroke-width", 1.5);
 
     // 14. Hover Interactive Overlay Rect
-    const hoverRect = chartSvg.append("rect")
+    const hoverRect = chartSvg
+      .append("rect")
       .attr("width", innerWidth)
       .attr("height", innerHeight)
       .attr("fill", "transparent")
@@ -913,42 +1073,67 @@ export async function appendWeatherOverlay(
     let currentHoverIndex: number | null = null;
 
     const showChartTooltip = (event: MouseEvent, d: any) => {
-      const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      
+      const weekdayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
+      const monthNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+
       const dayName = weekdayNames[d.time.getDay()];
       const dateStr = `${d.time.getDate()} ${monthNames[d.time.getMonth()]} ${d.time.getFullYear()}`;
-      
+
       const chartNode = svgElement.node();
-      const containerRect = chartNode ? chartNode.getBoundingClientRect() : { left: 0, top: 0 };
+      const containerRect = chartNode
+        ? chartNode.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const chartX = xScale(d.time) + margin.left;
       const tooltipX = containerRect.left + window.scrollX + chartX;
       const tooltipY = containerRect.top + window.scrollY - 10;
-      
+
       chartTooltip
-        .html(`
+        .html(
+          `
           <div style="font-weight: 700; color: rgba(255,255,255,0.7); margin-bottom: 5px;">${dayName}, ${dateStr}</div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #fbbf24;"></span>
-            <span>temperature_2m_mean: <strong>${d.temp.toFixed(1)} °C</strong></span>
+            <span>temperature: <strong>${d.temp.toFixed(1)} °C</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #3b82f6;"></span>
-            <span>precipitation_sum: <strong>${d.precip.toFixed(1)} mm</strong></span>
+            <span>precipitation: <strong>${d.precip.toFixed(1)} mm</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #ffffff;"></span>
-            <span>snowfall_sum: <strong>${d.snow.toFixed(1)} cm</strong></span>
+            <span>snowfall: <strong>${d.snow.toFixed(1)} cm</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 5px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #818cf8;"></span>
-            <span>delays_count: <strong>${d.delaysCount}</strong></span>
+            <span>delays count: <strong>${d.delaysCount}</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #c084fc;"></span>
-            <span>avg_delay: <strong>${d.avgDelayMin.toFixed(1)} min</strong></span>
+            <span>avg delay: <strong>${d.avgDelayMin.toFixed(1)} min</strong></span>
           </div>
-        `)
+        `,
+        )
         .style("display", "block")
         .style("left", `${tooltipX}px`)
         .style("top", `${tooltipY}px`)
@@ -958,7 +1143,7 @@ export async function appendWeatherOverlay(
     hoverRect
       .on("mousemove", function (event) {
         const [mouseX, mouseY] = d3.pointer(event, this);
-        
+
         let closestIndex = 0;
         let minDistance = Number.POSITIVE_INFINITY;
         chartData.forEach((d, i) => {
@@ -978,25 +1163,34 @@ export async function appendWeatherOverlay(
         const x = xScale(d.time);
 
         hoverLine.attr("x1", x).attr("x2", x).style("display", "block");
-        
+
         if (Number.isFinite(d.temp)) {
-          hCircleTemp.attr("cx", x).attr("cy", yScaleTemp(d.temp)).style("display", null);
+          hCircleTemp
+            .attr("cx", x)
+            .attr("cy", yScaleTemp(d.temp))
+            .style("display", null);
         } else {
           hCircleTemp.style("display", "none");
         }
-        
+
         if (Number.isFinite(d.precip)) {
-          hCirclePrecip.attr("cx", x).attr("cy", yScalePrecip(d.precip)).style("display", null);
+          hCirclePrecip
+            .attr("cx", x)
+            .attr("cy", yScalePrecip(d.precip))
+            .style("display", null);
         } else {
           hCirclePrecip.style("display", "none");
         }
-        
+
         if (Number.isFinite(d.snow)) {
-          hCircleSnow.attr("cx", x).attr("cy", yScaleSnow(d.snow)).style("display", null);
+          hCircleSnow
+            .attr("cx", x)
+            .attr("cy", yScaleSnow(d.snow))
+            .style("display", null);
         } else {
           hCircleSnow.style("display", "none");
         }
-        
+
         hoverCirclesG.style("display", "block");
 
         // Highlight corresponding bars, dim others
@@ -1011,10 +1205,10 @@ export async function appendWeatherOverlay(
         hoverLine.style("display", "none");
         hoverCirclesG.style("display", "none");
         chartTooltip.style("display", "none");
-        
+
         // Restore default bar opacities
         chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
-        
+
         restoreSelectedHour();
       })
       .on("click", function (event) {
@@ -1031,7 +1225,10 @@ export async function appendWeatherOverlay(
 
         commitHour(closestIndex);
         const selX = xScale(chartData[closestIndex].time);
-        selectedLine.attr("x1", selX).attr("x2", selX).style("display", "block");
+        selectedLine
+          .attr("x1", selX)
+          .attr("x2", selX)
+          .style("display", "block");
       });
 
     if (controls.legendContainer) {
@@ -1112,7 +1309,9 @@ export async function appendWeatherOverlay(
 
   const loadAndRender = async (range: WeatherDateRange) => {
     const requestId = (loadRequestId += 1);
-    const endLoadingTask = options.beginLoadingTask?.("Loading weather data...");
+    const endLoadingTask = options.beginLoadingTask?.(
+      "Loading weather data...",
+    );
     controls.slider.disabled = true;
 
     try {
@@ -1135,7 +1334,10 @@ export async function appendWeatherOverlay(
       );
       committedRenderHourIndex =
         selectedHourIndex ??
-        closestHourIndex(dataset.hours, selectedDateTargetTime(dataset.fromDate));
+        closestHourIndex(
+          dataset.hours,
+          selectedDateTargetTime(dataset.fromDate),
+        );
       previewHourIndex = null;
       renderedHourIndex = -1;
       controls.slider.value = `${committedRenderHourIndex}`;
@@ -1332,6 +1534,6 @@ export async function appendWeatherOverlay(
         currentDailyDelayTrips = dailyDelayTrips;
       }
       drawTimelineChart();
-    }
+    },
   };
 }
