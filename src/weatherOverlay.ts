@@ -568,8 +568,6 @@ function getChartData(
 type WeatherChartDatum = ReturnType<typeof getChartData>[number];
 type TimeDomain = [Date, Date];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function clampVisibleTimeDomain(
   visibleDomain: TimeDomain | null,
   fullDomain: TimeDomain,
@@ -617,22 +615,40 @@ function zoomTransformForTimeDomain(
     .scale(k);
 }
 
-function formatTimelineTick(date: Date, visibleDomain: TimeDomain) {
-  const visibleDays =
-    (visibleDomain[1].getTime() - visibleDomain[0].getTime()) / DAY_MS;
+function timelineTickValues(
+  chartData: WeatherChartDatum[],
+  xScale: d3.ScaleTime<number, number>,
+  innerWidth: number,
+) {
+  const ticksByDay = new Map<string, Date>();
 
-  if (visibleDays > 370) {
-    return d3.timeFormat("%b %Y")(date);
+  chartData.forEach((d) => {
+    const x = xScale(d.time);
+
+    if (x >= 0 && x <= innerWidth) {
+      ticksByDay.set(dayKey(d.time), d.time);
+    }
+  });
+
+  const ticks = Array.from(ticksByDay.values()).sort(
+    (a, b) => a.getTime() - b.getTime(),
+  );
+
+  if (ticks.length <= 1) {
+    return ticks;
   }
 
-  if (visibleDays > 90) {
-    return d3.timeFormat("%b")(date);
+  const minLabelSpacing = 82;
+  const step = Math.max(1, Math.ceil((ticks.length * minLabelSpacing) / innerWidth));
+
+  if (step === 1) {
+    return ticks;
   }
 
-  if (visibleDays > 21) {
-    return d3.timeFormat("%d.%m.")(date);
-  }
+  return ticks.filter((_, index) => index % step === 0 || index === ticks.length - 1);
+}
 
+function formatTimelineTick(date: Date) {
   return d3.timeFormat("%a %d.%m.")(date);
 }
 
@@ -1221,13 +1237,11 @@ export async function appendWeatherOverlay(
       const nextDomain = xScale.domain();
       visibleTimelineDomain = [nextDomain[0], nextDomain[1]];
 
-      const tickCount = Math.max(2, Math.floor(innerWidth / 90));
+      const tickDates = timelineTickValues(chartData, xScale, innerWidth);
       const xAxis = d3
         .axisBottom<Date>(xScale)
-        .ticks(tickCount)
-        .tickFormat((date) =>
-          formatTimelineTick(date as Date, visibleTimelineDomain!),
-        );
+        .tickValues(tickDates)
+        .tickFormat((date) => formatTimelineTick(date as Date));
 
       xAxisG
         .call(xAxis)
