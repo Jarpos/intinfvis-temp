@@ -31,6 +31,7 @@ import type { DelayTrip } from "./data/bahn";
 
 type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
+  timeline: HTMLDivElement;
   slider: HTMLInputElement;
   sliderWrap: HTMLDivElement;
   stepMarks: HTMLDivElement;
@@ -204,6 +205,7 @@ function createTimeline() {
   timeBubble.style.display = "none";
 
   return {
+    timeline,
     slider,
     sliderWrap,
     stepMarks,
@@ -707,6 +709,33 @@ export async function appendWeatherOverlay(
   updateLegend(legendTitle, legendTicks, WEATHER_VARIABLES[activeVariableKey]);
 
   const controls = createTimeline();
+  const stationFilter = document.getElementById("station-filter");
+  const stationFilterTimelineGap = 20;
+
+  const syncStationFilterHeight = () => {
+    if (!stationFilter) {
+      return;
+    }
+
+    const timelineTop = controls.timeline.getBoundingClientRect().top;
+    const height = Math.max(
+      0,
+      Math.floor(timelineTop - stationFilterTimelineGap),
+    );
+    document.documentElement.style.setProperty(
+      "--station-filter-height",
+      `${height}px`,
+    );
+  };
+
+  window.requestAnimationFrame(syncStationFilterHeight);
+
+  if (typeof ResizeObserver !== "undefined") {
+    const timelineResizeObserver = new ResizeObserver(() => {
+      syncStationFilterHeight();
+    });
+    timelineResizeObserver.observe(controls.timeline);
+  }
 
   let currentVisibleStationNames: Set<string> = new Set();
   let currentFocusedState: string | null = null;
@@ -1488,9 +1517,14 @@ export async function appendWeatherOverlay(
     if (controls.legendContainer) {
       updateLegendHTML(controls.legendContainer);
     }
+
+    window.requestAnimationFrame(syncStationFilterHeight);
   };
 
-  window.addEventListener("resize", drawTimelineChart);
+  window.addEventListener("resize", () => {
+    drawTimelineChart();
+    window.requestAnimationFrame(syncStationFilterHeight);
+  });
 
   dropdown.addEventListener("change", (event: Event) => {
     const customEvent = event as CustomEvent<{

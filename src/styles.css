@@ -17,6 +17,15 @@
 
 /* weatherOverlay */
 @layer components {
+    #station-filter {
+        align-self: flex-start;
+        height: var(--station-filter-height, calc(100vh - 258px));
+        max-height: var(--station-filter-height, calc(100vh - 258px));
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
     .weather-panel {
         position: fixed;
         left: 16px;
@@ -179,7 +188,7 @@
 
     .weather-timeline {
         position: fixed;
-        right: calc(20rem + 24px);
+        right: 24px;
         bottom: 18px;
         left: 24px;
         z-index: 5;
@@ -239,6 +248,11 @@
     }
 
     @media (max-width: 720px) {
+        #station-filter {
+            height: var(--station-filter-height, calc(100vh - 246px));
+            max-height: var(--station-filter-height, calc(100vh - 246px));
+        }
+
         .weather-panel {
             left: 10px;
             top: 10px;
