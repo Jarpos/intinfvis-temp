@@ -209,6 +209,14 @@ export type Connection = {
   entries: number;
 };
 
+export type DelayDirection = "incoming" | "outgoing" | "both";
+
+export type StationDelayImpactStats = {
+  station: Station;
+  trains: number;
+  weightedDelay: number;
+};
+
 type DelayConnectionAggregate = {
   source: Station;
   target: Station;
@@ -325,6 +333,66 @@ export function aggregateDelayConnections(trips: DelayTrip[]) {
       entries,
     }),
   );
+}
+
+export function buildStationDelayImpactStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+  direction: DelayDirection,
+  delayedThresholdSeconds = 60,
+) {
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const statsByEva = new Map<number, StationDelayImpactStats>();
+
+  function addStats(station: Station, trip: DelayTrip, entries: number) {
+    const current =
+      statsByEva.get(station.eva) ??
+      ({
+        station,
+        trains: 0,
+        weightedDelay: 0,
+      } satisfies StationDelayImpactStats);
+
+    current.trains += entries;
+    current.weightedDelay += trip.avg_delay * entries;
+    statsByEva.set(station.eva, current);
+  }
+
+  trips.forEach((trip) => {
+    if (
+      !Number.isFinite(trip.avg_delay) ||
+      trip.avg_delay < delayedThresholdSeconds
+    ) {
+      return;
+    }
+
+    const source = stationByEva.get(trip.from_stop_id);
+    const target = stationByEva.get(trip.to_stop_id);
+    const entries =
+      Number.isFinite(trip.entries_count) && trip.entries_count > 0
+        ? trip.entries_count
+        : 1;
+
+    if (
+      source &&
+      visibleStationsByEva.has(source.eva) &&
+      (direction === "outgoing" || direction === "both")
+    ) {
+      addStats(source, trip, entries);
+    }
+
+    if (
+      target &&
+      visibleStationsByEva.has(target.eva) &&
+      (direction === "incoming" || direction === "both")
+    ) {
+      addStats(target, trip, entries);
+    }
+  });
+
+  return statsByEva;
 }
 
 export async function loadDelayConnections(

@@ -101,6 +101,13 @@ function stateName(feature: GeoJSON.Feature) {
   );
 }
 
+function getMapViewport() {
+  return (
+    document.getElementById("map-viewport") ??
+    document.getElementById("map-panel")
+  );
+}
+
 function coordinateKey([longitude, latitude]: GeoJSON.Position) {
   return `${longitude.toFixed(5)},${latitude.toFixed(5)}`;
 }
@@ -198,8 +205,30 @@ function buildStateBoundaryPaths() {
 // Germany Map
 const germanyAreas = appendGermany(g);
 
+let trainStationsLayer: d3.Selection<
+  SVGGElement,
+  undefined,
+  null,
+  undefined
+> | null = null;
+let highlightedWeatherImpactStationEva: number | null = null;
+
+function setWeatherImpactStationHighlight(stationEva: number | null) {
+  highlightedWeatherImpactStationEva = stationEva;
+
+  trainStationsLayer
+    ?.selectAll<SVGImageElement, Station>("image.train-station-icon")
+    .classed(
+      "is-weather-impact-highlighted",
+      (station) => station.eva === highlightedWeatherImpactStationEva,
+    );
+}
+
 // Hourly historic temperature map
-const weatherOverlay = await appendWeatherOverlay(g, { beginLoadingTask });
+const weatherOverlay = await appendWeatherOverlay(g, {
+  beginLoadingTask,
+  onStationHoverChange: setWeatherImpactStationHighlight,
+});
 
 const stateHoverLayer = g
   .append("g")
@@ -275,7 +304,7 @@ stateHoverAreas
   });
 
 const trainLinesLayer = g.append("g");
-const trainStationsLayer = g.append("g");
+trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
 
 function featuresForState(state: string) {
@@ -311,9 +340,9 @@ function transformForState(state: string) {
   const [[x0, y0], [x1, y1]] = geoPath.bounds(collection);
   const dx = x1 - x0;
   const dy = y1 - y0;
-  const mapPanel = document.getElementById("map-panel");
-  const viewportWidth = mapPanel?.clientWidth || WIDTH;
-  const viewportHeight = mapPanel?.clientHeight || HEIGHT;
+  const mapViewport = getMapViewport();
+  const viewportWidth = mapViewport?.clientWidth || WIDTH;
+  const viewportHeight = mapViewport?.clientHeight || HEIGHT;
   const fitPadding = 150;
   const usableWidth = Math.max(240, viewportWidth - fitPadding * 2);
   const usableHeight = Math.max(240, viewportHeight - fitPadding * 2);
@@ -373,9 +402,9 @@ function focusState(state: string | null, zoomToState = false) {
 }
 
 function stateAtViewportCenter() {
-  const mapPanel = document.getElementById("map-panel");
-  const viewportWidth = mapPanel?.clientWidth || WIDTH;
-  const viewportHeight = mapPanel?.clientHeight || HEIGHT;
+  const mapViewport = getMapViewport();
+  const viewportWidth = mapViewport?.clientWidth || WIDTH;
+  const viewportHeight = mapViewport?.clientHeight || HEIGHT;
   const mapPoint = currentZoomTransform.invert([
     viewportWidth / 2,
     viewportHeight / 2,
@@ -635,6 +664,10 @@ function showStationDelayTooltip(
 function renderTrainNetwork() {
   requestTrainDelayConnections();
 
+  if (!trainStationsLayer) {
+    return;
+  }
+
   const shouldShowLocalStations = !!focusedState;
   const visibleIcStations = icStations.filter((station) => {
     if (!selectedStationNames.has(station.name)) {
@@ -702,7 +735,12 @@ function renderTrainNetwork() {
     stationRadius,
     stationFill,
   )
+    .classed(
+      "is-weather-impact-highlighted",
+      (station) => station.eva === highlightedWeatherImpactStationEva,
+    )
     .on("mouseenter", function (event, d) {
+      weatherOverlay.setHoveredStation(d.eva);
       d3.select(this)
         .attr("opacity", 1)
         .style(
@@ -719,6 +757,7 @@ function renderTrainNetwork() {
       positionTooltip(event);
     })
     .on("mouseleave", function () {
+      weatherOverlay.setHoveredStation(null);
       d3.select(this)
         .attr("opacity", this.getAttribute("data-station-opacity") ?? 1)
         .style("filter", null);
@@ -726,7 +765,7 @@ function renderTrainNetwork() {
     });
 
   if (!previewDelayDate) {
-    weatherOverlay.updateData(visibleStationNames, focusedState, dailyDelayTrips);
+    weatherOverlay.updateData(visibleStations, focusedState, dailyDelayTrips);
   }
 }
 
@@ -754,7 +793,7 @@ function applyTemperatureView() {
   ).style("display", "");
 
   trainLinesLayer.style("display", "");
-  trainStationsLayer.style("display", "");
+  trainStationsLayer?.style("display", "");
   stateHoverLayer.style("display", "").style("pointer-events", "all");
   stateBoundaryLayer.style("display", "");
   updateMapVisibility();
@@ -1250,8 +1289,8 @@ setupStationFilterPanel();
 setupTimeRangePicker(DEFAULT_DATE_RANGE);
 applyTemperatureView();
 
-const mapPanel = getRequiredElement<HTMLElement>("#map-panel");
-mapPanel.append(map_svg.node()!);
+const mapViewport = getRequiredElement<HTMLElement>("#map-viewport");
+mapViewport.append(map_svg.node()!);
 
 document.body.append(tooltip.node()!);
 
