@@ -275,7 +275,7 @@ stateHoverAreas
     tooltip.style("display", "none");
   });
 
-const trainLinesLayer = g.append("g").attr("pointer-events", "none");
+const trainLinesLayer = g.append("g");
 const trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
 
@@ -487,6 +487,24 @@ function requestTrainDelayConnections() {
     });
 }
 
+function positionTooltip(event: MouseEvent) {
+  tooltip
+    .style("left", `${event.pageX + 10}px`)
+    .style("top", `${event.pageY + 10}px`);
+}
+
+function showSectionDelayTooltip(event: MouseEvent, connection: Connection) {
+  const routeLine = document.createElement("div");
+  routeLine.textContent = `${connection.source.name} - ${connection.target.name}`;
+
+  const delayLine = document.createElement("div");
+  delayLine.textContent = `Delay: ${(connection.delay / 60).toFixed(1)} min`;
+
+  tooltip.node()?.replaceChildren(routeLine, delayLine);
+  tooltip.style("display", "block").style("background", COLORS.TOOLTIP.BACKGROUND);
+  positionTooltip(event);
+}
+
 function renderTrainNetwork() {
   requestTrainDelayConnections();
 
@@ -535,7 +553,18 @@ function renderTrainNetwork() {
     );
   }
 
-  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames);
+  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)
+    .on("mouseenter", function (event, d) {
+      d3.select(this).classed("is-section-delay-hovered", true).raise();
+      showSectionDelayTooltip(event, d);
+    })
+    .on("mousemove", (event) => {
+      positionTooltip(event);
+    })
+    .on("mouseleave", function () {
+      d3.select(this).classed("is-section-delay-hovered", false);
+      tooltip.style("display", "none");
+    });
   appendTrainStations(
     trainStationsLayer,
     visibleStations,
@@ -559,9 +588,7 @@ function renderTrainNetwork() {
         );
     })
     .on("mousemove", (event) => {
-      tooltip
-        .style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY + 10}px`);
+      positionTooltip(event);
     })
     .on("mouseleave", function () {
       d3.select(this)

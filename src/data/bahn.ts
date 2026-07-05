@@ -125,29 +125,29 @@ export function appendTrainStrecken(
       selectedStationNames.has(c.target.name),
   );
 
-  return (
-    g
-      .selectAll("line")
-      .data(filteredConnections, (d: any) => `${d.source.eva}-${d.target.eva}`)
-      .join("line")
-      .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
-      .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
-      .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
-      .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
-      // .attr("stroke", COLORS.TRAINS.LINES)
-      .attr("stroke", (d) =>
-        d.delay >= 300
-          ? "#d73027"
-          : d.delay >= 120
-            ? "#fc8d59"
-            : d.delay >= 60
-              ? "#fee08b"
-              : "#1a9850",
-      )
-      .attr("stroke-width", 0.9)
-      .attr("stroke-opacity", 0.9)
-      .attr("vector-effect", "non-scaling-stroke")
-  );
+  return g
+    .selectAll<SVGLineElement, Connection>("line.train-delay-line")
+    .data(filteredConnections, (d) => `${d.source.eva}-${d.target.eva}`)
+    .join("line")
+    .attr("class", "train-delay-line")
+    .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
+    .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
+    .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
+    .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
+    // .attr("stroke", COLORS.TRAINS.LINES)
+    .attr("stroke", (d) =>
+      d.delay >= 300
+        ? "#d73027"
+        : d.delay >= 120
+          ? "#fc8d59"
+          : d.delay >= 60
+            ? "#fee08b"
+            : "#1a9850",
+    )
+    .attr("stroke-width", 0.9)
+    .attr("stroke-opacity", 0.9)
+    .attr("pointer-events", "stroke")
+    .attr("vector-effect", "non-scaling-stroke");
 }
 
 export function appendTrainStations(
@@ -395,4 +395,3 @@ export async function loadDelayTripsPerDay(
 
   return results;
 }
-
