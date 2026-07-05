@@ -8,7 +8,6 @@ import {
   appendTrainStations,
   localStations,
   icStations,
-  loadDelayConnections,
   loadDelayTripsPerDay,
   aggregateDelayConnections,
 } from "./data/bahn";
@@ -505,6 +504,134 @@ function showSectionDelayTooltip(event: MouseEvent, connection: Connection) {
   positionTooltip(event);
 }
 
+type DirectionalStationDelayStats = {
+  trains: number;
+  weightedDelay: number;
+};
+
+type StationDelayStats = {
+  incoming: DirectionalStationDelayStats;
+  outgoing: DirectionalStationDelayStats;
+};
+
+function createDirectionalStationDelayStats(): DirectionalStationDelayStats {
+  return {
+    trains: 0,
+    weightedDelay: 0,
+  };
+}
+
+function createStationDelayStats(): StationDelayStats {
+  return {
+    incoming: createDirectionalStationDelayStats(),
+    outgoing: createDirectionalStationDelayStats(),
+  };
+}
+
+function stationDelayStatsForEva(
+  statsByEva: Map<number, StationDelayStats>,
+  eva: number,
+) {
+  let stats = statsByEva.get(eva);
+
+  if (!stats) {
+    stats = createStationDelayStats();
+    statsByEva.set(eva, stats);
+  }
+
+  return stats;
+}
+
+function buildStationDelayStats(
+  connections: Connection[],
+  visibleStationNames: Set<string>,
+) {
+  const statsByEva = new Map<number, StationDelayStats>();
+
+  connections.forEach((connection) => {
+    if (
+      !visibleStationNames.has(connection.source.name) ||
+      !visibleStationNames.has(connection.target.name)
+    ) {
+      return;
+    }
+
+    const trains =
+      Number.isFinite(connection.entries) && connection.entries > 0
+        ? connection.entries
+        : 1;
+    const weightedDelay = connection.delay * trains;
+    const sourceStats = stationDelayStatsForEva(
+      statsByEva,
+      connection.source.eva,
+    );
+    const targetStats = stationDelayStatsForEva(
+      statsByEva,
+      connection.target.eva,
+    );
+
+    sourceStats.outgoing.trains += trains;
+    sourceStats.outgoing.weightedDelay += weightedDelay;
+    targetStats.incoming.trains += trains;
+    targetStats.incoming.weightedDelay += weightedDelay;
+  });
+
+  return statsByEva;
+}
+
+function formatAverageDelay(stats: DirectionalStationDelayStats) {
+  if (stats.trains <= 0) {
+    return "N/A";
+  }
+
+  return `${(stats.weightedDelay / stats.trains / 60).toFixed(1)} min`;
+}
+
+function formatTrainCount(count: number) {
+  return count.toLocaleString("de-DE");
+}
+
+function showStationDelayTooltip(
+  event: MouseEvent,
+  station: Station,
+  stationDelayStats: StationDelayStats,
+) {
+  const stationNameLine = document.createElement("div");
+  stationNameLine.textContent = station.name;
+
+  const incomingTrainsLine = document.createElement("div");
+  incomingTrainsLine.textContent = `Incoming trains: ${formatTrainCount(
+    stationDelayStats.incoming.trains,
+  )}`;
+
+  const outgoingTrainsLine = document.createElement("div");
+  outgoingTrainsLine.textContent = `Outgoing trains: ${formatTrainCount(
+    stationDelayStats.outgoing.trains,
+  )}`;
+
+  const incomingDelayLine = document.createElement("div");
+  incomingDelayLine.textContent = `Avg incoming delay: ${formatAverageDelay(
+    stationDelayStats.incoming,
+  )}`;
+
+  const outgoingDelayLine = document.createElement("div");
+  outgoingDelayLine.textContent = `Avg outgoing delay: ${formatAverageDelay(
+    stationDelayStats.outgoing,
+  )}`;
+
+  tooltip
+    .node()
+    ?.replaceChildren(
+      stationNameLine,
+      incomingTrainsLine,
+      outgoingTrainsLine,
+      incomingDelayLine,
+      outgoingDelayLine,
+    );
+  tooltip.style("display", "block").style("background", COLORS.TOOLTIP.BACKGROUND);
+  positionTooltip(event);
+}
+
 function renderTrainNetwork() {
   requestTrainDelayConnections();
 
@@ -552,6 +679,10 @@ function renderTrainNetwork() {
       dailyDelayTrips[dateToRender] ?? [],
     );
   }
+  const stationDelayStatsByEva = buildStationDelayStats(
+    displayConnections,
+    visibleStationNames,
+  );
 
   appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)
     .on("mouseenter", function (event, d) {
@@ -571,21 +702,18 @@ function renderTrainNetwork() {
     stationRadius,
     stationFill,
   )
-    .on("mouseenter", function (_, d) {
+    .on("mouseenter", function (event, d) {
       d3.select(this)
         .attr("opacity", 1)
         .style(
           "filter",
           "brightness(0) saturate(100%) invert(83%) sepia(94%) saturate(1058%) hue-rotate(358deg) brightness(101%) contrast(106%)",
         );
-      const locationParts = [d.state, d.region].filter(Boolean);
-      tooltip
-        .style("display", "block")
-        .text(
-          locationParts.length > 0
-            ? `${d.name} - ${locationParts.join(", ")}`
-            : d.name,
-        );
+      showStationDelayTooltip(
+        event,
+        d,
+        stationDelayStatsByEva.get(d.eva) ?? createStationDelayStats(),
+      );
     })
     .on("mousemove", (event) => {
       positionTooltip(event);

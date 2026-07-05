@@ -206,6 +206,7 @@ export type Connection = {
   source: Station;
   target: Station;
   delay: number;
+  entries: number;
 };
 
 type DelayConnectionAggregate = {
@@ -321,6 +322,7 @@ export function aggregateDelayConnections(trips: DelayTrip[]) {
       source,
       target,
       delay: weightedDelay / entries,
+      entries,
     }),
   );
 }
