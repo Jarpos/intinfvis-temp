@@ -10,6 +10,7 @@ import {
   icStations,
   loadDelayTripsPerDay,
   aggregateDelayConnections,
+  buildStationDelayImpactStats,
 } from "./data/bahn";
 import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
@@ -526,32 +527,39 @@ function showSectionDelayTooltip(event: MouseEvent, connection: Connection) {
   routeLine.textContent = `${connection.source.name} - ${connection.target.name}`;
 
   const delayLine = document.createElement("div");
-  delayLine.textContent = `Delay: ${(connection.delay / 60).toFixed(1)} min`;
+  delayLine.textContent = `Avg delay: ${(connection.delay / 60).toFixed(1)} min`;
 
-  tooltip.node()?.replaceChildren(routeLine, delayLine);
+  const delayCountLine = document.createElement("div");
+  delayCountLine.textContent = `Delay count: ${formatDelayCount(
+    connection.delayCount,
+  )}`;
+
+  tooltip.node()?.replaceChildren(routeLine, delayLine, delayCountLine);
   tooltip.style("display", "block").style("background", COLORS.TOOLTIP.BACKGROUND);
   positionTooltip(event);
 }
 
 type DirectionalStationDelayStats = {
-  trains: number;
+  delayCount: number;
   weightedDelay: number;
 };
 
 type StationDelayStats = {
+  total: DirectionalStationDelayStats;
   incoming: DirectionalStationDelayStats;
   outgoing: DirectionalStationDelayStats;
 };
 
 function createDirectionalStationDelayStats(): DirectionalStationDelayStats {
   return {
-    trains: 0,
+    delayCount: 0,
     weightedDelay: 0,
   };
 }
 
 function createStationDelayStats(): StationDelayStats {
   return {
+    total: createDirectionalStationDelayStats(),
     incoming: createDirectionalStationDelayStats(),
     outgoing: createDirectionalStationDelayStats(),
   };
@@ -572,51 +580,63 @@ function stationDelayStatsForEva(
 }
 
 function buildStationDelayStats(
-  connections: Connection[],
-  visibleStationNames: Set<string>,
+  trips: DelayTrip[],
+  visibleStations: Station[],
 ) {
   const statsByEva = new Map<number, StationDelayStats>();
+  const incomingStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "incoming",
+  );
+  const outgoingStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "outgoing",
+  );
+  const totalStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "both",
+  );
 
-  connections.forEach((connection) => {
-    if (
-      !visibleStationNames.has(connection.source.name) ||
-      !visibleStationNames.has(connection.target.name)
-    ) {
-      return;
-    }
-
-    const trains =
-      Number.isFinite(connection.entries) && connection.entries > 0
-        ? connection.entries
-        : 1;
-    const weightedDelay = connection.delay * trains;
+  visibleStations.forEach((station) => {
     const sourceStats = stationDelayStatsForEva(
       statsByEva,
-      connection.source.eva,
+      station.eva,
     );
-    const targetStats = stationDelayStatsForEva(
-      statsByEva,
-      connection.target.eva,
-    );
+    const total = totalStats.get(station.eva);
+    const incoming = incomingStats.get(station.eva);
+    const outgoing = outgoingStats.get(station.eva);
 
-    sourceStats.outgoing.trains += trains;
-    sourceStats.outgoing.weightedDelay += weightedDelay;
-    targetStats.incoming.trains += trains;
-    targetStats.incoming.weightedDelay += weightedDelay;
+    if (total) {
+      sourceStats.total.delayCount = total.delayCount;
+      sourceStats.total.weightedDelay = total.weightedDelay;
+    }
+
+    if (incoming) {
+      sourceStats.incoming.delayCount = incoming.delayCount;
+      sourceStats.incoming.weightedDelay = incoming.weightedDelay;
+    }
+
+    if (outgoing) {
+      sourceStats.outgoing.delayCount = outgoing.delayCount;
+      sourceStats.outgoing.weightedDelay = outgoing.weightedDelay;
+    }
   });
 
   return statsByEva;
 }
 
 function formatAverageDelay(stats: DirectionalStationDelayStats) {
-  if (stats.trains <= 0) {
+  if (stats.delayCount <= 0) {
     return "N/A";
   }
 
-  return `${(stats.weightedDelay / stats.trains / 60).toFixed(1)} min`;
+  return `${(stats.weightedDelay / stats.delayCount / 60).toFixed(1)} min`;
 }
 
-function formatTrainCount(count: number) {
+function formatDelayCount(count: number) {
   return count.toLocaleString("de-DE");
 }
 
@@ -628,14 +648,24 @@ function showStationDelayTooltip(
   const stationNameLine = document.createElement("div");
   stationNameLine.textContent = station.name;
 
-  const incomingTrainsLine = document.createElement("div");
-  incomingTrainsLine.textContent = `Incoming trains: ${formatTrainCount(
-    stationDelayStats.incoming.trains,
+  const totalDelayCountLine = document.createElement("div");
+  totalDelayCountLine.textContent = `Section delay count: ${formatDelayCount(
+    stationDelayStats.total.delayCount,
   )}`;
 
-  const outgoingTrainsLine = document.createElement("div");
-  outgoingTrainsLine.textContent = `Outgoing trains: ${formatTrainCount(
-    stationDelayStats.outgoing.trains,
+  const totalDelayLine = document.createElement("div");
+  totalDelayLine.textContent = `Avg section delay: ${formatAverageDelay(
+    stationDelayStats.total,
+  )}`;
+
+  const incomingDelayCountLine = document.createElement("div");
+  incomingDelayCountLine.textContent = `Incoming delay count: ${formatDelayCount(
+    stationDelayStats.incoming.delayCount,
+  )}`;
+
+  const outgoingDelayCountLine = document.createElement("div");
+  outgoingDelayCountLine.textContent = `Outgoing delay count: ${formatDelayCount(
+    stationDelayStats.outgoing.delayCount,
   )}`;
 
   const incomingDelayLine = document.createElement("div");
@@ -652,8 +682,10 @@ function showStationDelayTooltip(
     .node()
     ?.replaceChildren(
       stationNameLine,
-      incomingTrainsLine,
-      outgoingTrainsLine,
+      totalDelayCountLine,
+      totalDelayLine,
+      incomingDelayCountLine,
+      outgoingDelayCountLine,
       incomingDelayLine,
       outgoingDelayLine,
     );
@@ -707,14 +739,16 @@ function renderTrainNetwork() {
 
   const dateToRender = previewDelayDate || activeDelayDate;
   let displayConnections = trainConnections;
+  let displayTrips = dailyDelayTrips ? Object.values(dailyDelayTrips).flat() : [];
   if (dateToRender && dailyDelayTrips) {
+    displayTrips = dailyDelayTrips[dateToRender] ?? [];
     displayConnections = aggregateDelayConnections(
-      dailyDelayTrips[dateToRender] ?? [],
+      displayTrips,
     );
   }
   const stationDelayStatsByEva = buildStationDelayStats(
-    displayConnections,
-    visibleStationNames,
+    displayTrips,
+    visibleStations,
   );
 
   appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)

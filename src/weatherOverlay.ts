@@ -688,10 +688,13 @@ function getChartData(
           visibleStationNames.has(c.target.name),
       );
 
-      const delayed = visibleConnections.filter((c) => c.delay >= 60);
-      delaysCount = delayed.length;
+      delaysCount = d3.sum(visibleConnections, (c) => c.delayCount);
       avgDelayMin =
-        delayed.length > 0 ? d3.mean(delayed, (c) => c.delay)! / 60 : 0;
+        delaysCount > 0
+          ? d3.sum(visibleConnections, (c) => c.delay * c.delayCount) /
+            delaysCount /
+            60
+          : 0;
     }
 
     return {
@@ -938,7 +941,7 @@ export async function appendWeatherOverlay(
         </div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 4px;">
           <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #818cf8;"></span>
-          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">delays count</span>
+          <span style="font-weight: 600; color: rgba(255,255,255,0.78);">delay count</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #c084fc;"></span>
@@ -952,7 +955,7 @@ export async function appendWeatherOverlay(
     station: Station;
     weatherValue: number;
     avgDelayMin: number;
-    trains: number;
+    delayCount: number;
   };
 
   const stationWeatherValue = (
@@ -1020,7 +1023,6 @@ export async function appendWeatherOverlay(
       trips,
       currentVisibleStations,
       impactDirection,
-      60,
     );
 
     return currentVisibleStations
@@ -1028,15 +1030,15 @@ export async function appendWeatherOverlay(
         const stats = stationStats.get(station.eva);
         const weatherValue = stationWeatherValue(station, hours, dataset);
 
-        if (!stats || stats.trains <= 0 || !Number.isFinite(weatherValue)) {
+        if (!stats || stats.delayCount <= 0 || !Number.isFinite(weatherValue)) {
           return null;
         }
 
         return {
           station,
           weatherValue,
-          avgDelayMin: stats.weightedDelay / stats.trains / 60,
-          trains: stats.trains,
+          avgDelayMin: stats.weightedDelay / stats.delayCount / 60,
+          delayCount: stats.delayCount,
         };
       })
       .filter((datum): datum is WeatherImpactDatum => datum !== null);
@@ -1058,10 +1060,10 @@ export async function appendWeatherOverlay(
     const delayLine = document.createElement("div");
     delayLine.textContent = `avg delay: ${datum.avgDelayMin.toFixed(1)} min`;
 
-    const trainsLine = document.createElement("div");
-    trainsLine.textContent = `amount trains: ${datum.trains.toLocaleString("de-DE")}`;
+    const delayCountLine = document.createElement("div");
+    delayCountLine.textContent = `delay count: ${datum.delayCount.toLocaleString("de-DE")}`;
 
-    tooltip.node()?.replaceChildren(stationLine, delayLine, trainsLine);
+    tooltip.node()?.replaceChildren(stationLine, delayLine, delayCountLine);
     tooltip
       .style("display", "block")
       .style("left", `${event.pageX + 10}px`)
@@ -1100,7 +1102,7 @@ export async function appendWeatherOverlay(
     if (data.length === 0) {
       const empty = document.createElement("div");
       empty.className = "weather-impact-empty";
-      empty.textContent = "No delayed train data for the current selection.";
+      empty.textContent = "No connection delay data for the current selection.";
       scatterContainer.append(empty);
       return;
     }
@@ -1119,7 +1121,7 @@ export async function appendWeatherOverlay(
     }
 
     const yMax = d3.max(data, (d) => d.avgDelayMin) ?? 1;
-    const trainMax = d3.max(data, (d) => d.trains) ?? 1;
+    const delayCountMax = d3.max(data, (d) => d.delayCount) ?? 1;
     const xScale = d3
       .scaleLinear()
       .domain([xMin, xMax])
@@ -1132,7 +1134,7 @@ export async function appendWeatherOverlay(
       .range([innerHeight, 0]);
     const radiusScale = d3
       .scaleSqrt()
-      .domain([1, trainMax])
+      .domain([1, delayCountMax])
       .range([4, 18]);
 
     const svgElement = d3
@@ -1203,7 +1205,7 @@ export async function appendWeatherOverlay(
       .attr("x", innerWidth)
       .attr("y", -10)
       .attr("text-anchor", "end")
-      .text("point = station, size = delayed trains");
+      .text("point = station, size = delay count");
 
     chart
       .append("g")
@@ -1214,7 +1216,7 @@ export async function appendWeatherOverlay(
       .attr("class", "weather-impact-point")
       .attr("cx", (d) => xScale(d.weatherValue))
       .attr("cy", (d) => yScale(d.avgDelayMin))
-      .attr("r", (d) => radiusScale(d.trains))
+      .attr("r", (d) => radiusScale(d.delayCount))
       .classed(
         "is-highlighted",
         (d) => d.station.eva === highlightedImpactStationEva,
@@ -1788,7 +1790,7 @@ export async function appendWeatherOverlay(
           </div>
           <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 5px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #818cf8;"></span>
-            <span>delays count: <strong>${d.delaysCount}</strong></span>
+            <span>delay count: <strong>${d.delaysCount}</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
             <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #c084fc;"></span>

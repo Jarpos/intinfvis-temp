@@ -35,6 +35,7 @@ export type DelayDateRange = {
 export type DelayTrip = {
   from_stop_id: number;
   to_stop_id: number;
+  delay_count: number;
   avg_delay: number;
   entries_count: number;
 };
@@ -206,14 +207,14 @@ export type Connection = {
   source: Station;
   target: Station;
   delay: number;
-  entries: number;
+  delayCount: number;
 };
 
 export type DelayDirection = "incoming" | "outgoing" | "both";
 
 export type StationDelayImpactStats = {
   station: Station;
-  trains: number;
+  delayCount: number;
   weightedDelay: number;
 };
 
@@ -221,7 +222,7 @@ type DelayConnectionAggregate = {
   source: Station;
   target: Station;
   weightedDelay: number;
-  entries: number;
+  delayCount: number;
 };
 
 const stationByEva = new Map(
@@ -235,6 +236,7 @@ function parseDelayRow(d: Record<string, string | undefined>): DelayTrip {
   return {
     from_stop_id: Number(d.from_stop_id),
     to_stop_id: Number(d.to_stop_id),
+    delay_count: Number(d.delay_count),
     avg_delay: Number(d.avg_delay),
     entries_count: Number(d.entries_count),
   };
@@ -294,43 +296,69 @@ function delayRegionPathSegment(regionName: string) {
   return encodeURIComponent(regionName);
 }
 
+function delayCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.delay_count) && trip.delay_count > 0
+    ? trip.delay_count
+    : 0;
+}
+
+function orderedStationPair(source: Station, target: Station) {
+  return source.eva <= target.eva
+    ? { source, target }
+    : { source: target, target: source };
+}
+
+function addTripToConnectionAggregate(
+  connectionsByEdge: Map<string, DelayConnectionAggregate>,
+  source: Station,
+  target: Station,
+  trip: DelayTrip,
+  delayCount: number,
+) {
+  const ordered = orderedStationPair(source, target);
+  const key = `${ordered.source.eva}-${ordered.target.eva}`;
+  const current = connectionsByEdge.get(key);
+
+  if (current) {
+    current.weightedDelay += trip.avg_delay * delayCount;
+    current.delayCount += delayCount;
+  } else {
+    connectionsByEdge.set(key, {
+      source: ordered.source,
+      target: ordered.target,
+      weightedDelay: trip.avg_delay * delayCount,
+      delayCount,
+    });
+  }
+}
+
 export function aggregateDelayConnections(trips: DelayTrip[]) {
   const connectionsByEdge = new Map<string, DelayConnectionAggregate>();
 
   trips.forEach((trip) => {
     const source = stationByEva.get(trip.from_stop_id);
     const target = stationByEva.get(trip.to_stop_id);
+    const delayCount = delayCountForTrip(trip);
 
-    if (!source || !target || !Number.isFinite(trip.avg_delay)) {
+    if (!source || !target || !Number.isFinite(trip.avg_delay) || delayCount <= 0) {
       return;
     }
 
-    const key = `${source.eva}-${target.eva}`;
-    const entries =
-      Number.isFinite(trip.entries_count) && trip.entries_count > 0
-        ? trip.entries_count
-        : 1;
-    const current = connectionsByEdge.get(key);
-
-    if (current) {
-      current.weightedDelay += trip.avg_delay * entries;
-      current.entries += entries;
-    } else {
-      connectionsByEdge.set(key, {
-        source,
-        target,
-        weightedDelay: trip.avg_delay * entries,
-        entries,
-      });
-    }
+    addTripToConnectionAggregate(
+      connectionsByEdge,
+      source,
+      target,
+      trip,
+      delayCount,
+    );
   });
 
   return Array.from(connectionsByEdge.values()).map(
-    ({ source, target, weightedDelay, entries }) => ({
+    ({ source, target, weightedDelay, delayCount }) => ({
       source,
       target,
-      delay: weightedDelay / entries,
-      entries,
+      delay: weightedDelay / delayCount,
+      delayCount,
     }),
   );
 }
@@ -339,56 +367,54 @@ export function buildStationDelayImpactStats(
   trips: DelayTrip[],
   visibleStations: Station[],
   direction: DelayDirection,
-  delayedThresholdSeconds = 60,
 ) {
   const visibleStationsByEva = new Map(
     visibleStations.map((station) => [station.eva, station]),
   );
-  const statsByEva = new Map<number, StationDelayImpactStats>();
+  const visibleConnections = aggregateDelayConnections(trips).filter(
+    (connection) =>
+      visibleStationsByEva.has(connection.source.eva) &&
+      visibleStationsByEva.has(connection.target.eva),
+  );
 
-  function addStats(station: Station, trip: DelayTrip, entries: number) {
+  const statsByEva = new Map<number, StationDelayImpactStats>();
+  function addConnection(station: Station, connection: Connection) {
     const current =
       statsByEva.get(station.eva) ??
       ({
         station,
-        trains: 0,
+        delayCount: 0,
         weightedDelay: 0,
       } satisfies StationDelayImpactStats);
 
-    current.trains += entries;
-    current.weightedDelay += trip.avg_delay * entries;
+    current.delayCount += connection.delayCount;
+    current.weightedDelay += connection.delay * connection.delayCount;
     statsByEva.set(station.eva, current);
   }
 
-  trips.forEach((trip) => {
-    if (
-      !Number.isFinite(trip.avg_delay) ||
-      trip.avg_delay < delayedThresholdSeconds
-    ) {
+  visibleConnections.forEach((connection) => {
+    const isSelfConnection = connection.source.eva === connection.target.eva;
+
+    if (direction === "both") {
+      addConnection(connection.source, connection);
+
+      if (!isSelfConnection) {
+        addConnection(connection.target, connection);
+      }
+
       return;
     }
 
-    const source = stationByEva.get(trip.from_stop_id);
-    const target = stationByEva.get(trip.to_stop_id);
-    const entries =
-      Number.isFinite(trip.entries_count) && trip.entries_count > 0
-        ? trip.entries_count
-        : 1;
-
-    if (
-      source &&
-      visibleStationsByEva.has(source.eva) &&
-      (direction === "outgoing" || direction === "both")
-    ) {
-      addStats(source, trip, entries);
+    if (isSelfConnection) {
+      return;
     }
 
-    if (
-      target &&
-      visibleStationsByEva.has(target.eva) &&
-      (direction === "incoming" || direction === "both")
-    ) {
-      addStats(target, trip, entries);
+    if (direction === "outgoing") {
+      addConnection(connection.source, connection);
+    }
+
+    if (direction === "incoming") {
+      addConnection(connection.target, connection);
     }
   });
 
