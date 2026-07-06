@@ -17,6 +17,10 @@
 
 /* weatherOverlay */
 @layer components {
+    :root {
+        --weather-edge-inset: 16px;
+    }
+
     #station-filter {
         align-self: flex-start;
         height: var(--station-filter-height, calc(100vh - 258px));
@@ -68,8 +72,8 @@
 
     .weather-panel {
         position: fixed;
-        left: 16px;
-        top: 16px;
+        left: var(--weather-edge-inset);
+        top: var(--weather-edge-inset);
         z-index: 10;
         display: grid;
         gap: 8px;
@@ -359,17 +363,23 @@
 
     .weather-timeline {
         position: fixed;
-        right: 24px;
-        bottom: 18px;
-        left: 24px;
+        right: var(--weather-edge-inset);
+        bottom: var(--weather-edge-inset);
+        left: var(--weather-edge-inset);
         z-index: 5;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
         padding: 14px 24px;
         border-radius: 7px;
         color: #f7fbff;
         height: auto;
+    }
+
+    .weather-timeline-body {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
     }
 
     .weather-timeline-svg {
@@ -435,14 +445,16 @@
     }
 
     @media (max-width: 720px) {
+        :root {
+            --weather-edge-inset: 10px;
+        }
+
         #station-filter {
             height: var(--station-filter-height, calc(100vh - 246px));
             max-height: var(--station-filter-height, calc(100vh - 246px));
         }
 
         .weather-panel {
-            left: 10px;
-            top: 10px;
             width: 170px;
         }
 
@@ -455,9 +467,6 @@
         }
 
         .weather-timeline {
-            left: 10px;
-            right: 10px;
-            bottom: 10px;
             padding: 8px 14px 18px;
         }
 

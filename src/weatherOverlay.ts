@@ -309,9 +309,6 @@ function createTimeline() {
 
   const containerBody = document.createElement("div");
   containerBody.className = "weather-timeline-body";
-  containerBody.style.display = "flex";
-  containerBody.style.gap = "24px";
-  containerBody.style.alignItems = "stretch";
 
   const chartContainer = document.createElement("div");
   chartContainer.className = "weather-chart-container";
@@ -864,7 +861,7 @@ export async function appendWeatherOverlay(
 
   const controls = createTimeline();
   const stationFilter = document.getElementById("station-filter");
-  const stationFilterTimelineGap = 20;
+  const stationFilterTimelineGap = 10;
 
   const syncStationFilterHeight = () => {
     if (!stationFilter) {
