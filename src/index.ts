@@ -109,6 +109,109 @@ function getMapViewport() {
   );
 }
 
+function screenPointToSvgPoint(x: number, y: number) {
+  const svg = map_svg.node();
+  const matrix = svg?.getScreenCTM()?.inverse();
+
+  if (!svg || !matrix) {
+    return [x, y] as [number, number];
+  }
+
+  const point = svg.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  const transformedPoint = point.matrixTransform(matrix);
+
+  return [transformedPoint.x, transformedPoint.y] as [number, number];
+}
+
+function getMapFocusRect() {
+  const mapViewport = getMapViewport();
+  const viewportRect = mapViewport?.getBoundingClientRect();
+
+  if (!viewportRect) {
+    return {
+      left: 0,
+      top: 0,
+      right: WIDTH,
+      bottom: HEIGHT,
+      width: WIDTH,
+      height: HEIGHT,
+      centerX: WIDTH / 2,
+      centerY: HEIGHT / 2,
+    };
+  }
+
+  const screenRect = {
+    left: viewportRect.left,
+    top: viewportRect.top,
+    right: viewportRect.right,
+    bottom: viewportRect.bottom,
+  };
+
+  if (
+    document.body.classList.contains("weather-impact-active") &&
+    viewportRect
+  ) {
+    const panelRect = document
+      .querySelector<HTMLElement>(".weather-panel")
+      ?.getBoundingClientRect();
+    const timelineRect = document
+      .querySelector<HTMLElement>(".weather-timeline")
+      ?.getBoundingClientRect();
+    const gap = 16;
+
+    if (
+      panelRect &&
+      panelRect.right > viewportRect.left &&
+      panelRect.left < viewportRect.right
+    ) {
+      screenRect.left = Math.min(
+        screenRect.right,
+        Math.max(screenRect.left, panelRect.right + gap),
+      );
+    }
+
+    if (
+      timelineRect &&
+      timelineRect.top > viewportRect.top &&
+      timelineRect.top < viewportRect.bottom
+    ) {
+      screenRect.bottom = Math.max(
+        screenRect.top,
+        Math.min(screenRect.bottom, timelineRect.top - gap),
+      );
+    }
+  }
+
+  if (screenRect.right - screenRect.left < 240) {
+    screenRect.left = Math.max(viewportRect.left, screenRect.right - 240);
+  }
+
+  if (screenRect.bottom - screenRect.top < 240) {
+    screenRect.top = Math.max(viewportRect.top, screenRect.bottom - 240);
+  }
+
+  const [left, top] = screenPointToSvgPoint(screenRect.left, screenRect.top);
+  const [right, bottom] = screenPointToSvgPoint(
+    screenRect.right,
+    screenRect.bottom,
+  );
+  const width = Math.max(1, right - left);
+  const height = Math.max(1, bottom - top);
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width,
+    height,
+    centerX: left + width / 2,
+    centerY: top + height / 2,
+  };
+}
+
 function coordinateKey([longitude, latitude]: GeoJSON.Position) {
   return `${longitude.toFixed(5)},${latitude.toFixed(5)}`;
 }
@@ -341,12 +444,14 @@ function transformForState(state: string) {
   const [[x0, y0], [x1, y1]] = geoPath.bounds(collection);
   const dx = x1 - x0;
   const dy = y1 - y0;
-  const mapViewport = getMapViewport();
-  const viewportWidth = mapViewport?.clientWidth || WIDTH;
-  const viewportHeight = mapViewport?.clientHeight || HEIGHT;
-  const fitPadding = 150;
-  const usableWidth = Math.max(240, viewportWidth - fitPadding * 2);
-  const usableHeight = Math.max(240, viewportHeight - fitPadding * 2);
+  const focusRect = getMapFocusRect();
+  const fitPadding = Math.min(
+    150,
+    focusRect.width * 0.18,
+    focusRect.height * 0.18,
+  );
+  const usableWidth = Math.max(180, focusRect.width - fitPadding * 2);
+  const usableHeight = Math.max(180, focusRect.height - fitPadding * 2);
   const scale = Math.min(
     8,
     Math.max(
@@ -354,8 +459,8 @@ function transformForState(state: string) {
       Math.min(usableWidth / dx, usableHeight / dy),
     ),
   );
-  const translateX = viewportWidth / 2 - (scale * (x0 + x1)) / 2;
-  const translateY = viewportHeight / 2 - (scale * (y0 + y1)) / 2;
+  const translateX = focusRect.centerX - (scale * (x0 + x1)) / 2;
+  const translateY = focusRect.centerY - (scale * (y0 + y1)) / 2;
 
   return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
 }
@@ -402,13 +507,32 @@ function focusState(state: string | null, zoomToState = false) {
   }
 }
 
+function refitFocusedStateToMapFocusRect() {
+  if (!focusedState || !zoom) {
+    return;
+  }
+
+  const nextTransform = transformForState(focusedState);
+
+  if (!nextTransform) {
+    return;
+  }
+
+  map_svg
+    .transition()
+    .duration(350)
+    .call(zoom.transform, nextTransform);
+}
+
+document.addEventListener("weather-impact-layout-change", () => {
+  window.requestAnimationFrame(refitFocusedStateToMapFocusRect);
+});
+
 function stateAtViewportCenter() {
-  const mapViewport = getMapViewport();
-  const viewportWidth = mapViewport?.clientWidth || WIDTH;
-  const viewportHeight = mapViewport?.clientHeight || HEIGHT;
+  const focusRect = getMapFocusRect();
   const mapPoint = currentZoomTransform.invert([
-    viewportWidth / 2,
-    viewportHeight / 2,
+    focusRect.centerX,
+    focusRect.centerY,
   ]);
   const coordinates = projection.invert?.(mapPoint);
 

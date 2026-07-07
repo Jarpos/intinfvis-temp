@@ -276,6 +276,7 @@ function createLegend() {
   });
 
   return {
+    panel,
     dropdown: dropdownContainer,
     legendTitle,
     legendTicks,
@@ -842,6 +843,7 @@ export async function appendWeatherOverlay(
   options: WeatherOverlayOptions = {},
 ): Promise<WeatherOverlayController> {
   const {
+    panel,
     dropdown,
     legendTitle,
     legendTicks,
@@ -864,18 +866,50 @@ export async function appendWeatherOverlay(
   const stationFilterTimelineGap = 10;
 
   const syncStationFilterHeight = () => {
+    const timelineTop = controls.timeline.getBoundingClientRect().top;
+    const availableStationFilterHeight = Math.max(
+      0,
+      Math.floor(timelineTop - stationFilterTimelineGap),
+    );
+    const edgeInset =
+      Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--weather-edge-inset",
+        ),
+      ) || 0;
+    const availableOverlayHeight = Math.max(
+      0,
+      Math.floor(timelineTop - stationFilterTimelineGap - edgeInset),
+    );
+
+    document.documentElement.style.setProperty(
+      "--weather-overlay-max-height",
+      `${availableOverlayHeight}px`,
+    );
+
+    panel.style.setProperty("--weather-panel-scale", "1");
+    const panelHeight = panel.scrollHeight;
+    const panelWidth = panel.scrollWidth;
+    const availableWidth = Math.max(
+      0,
+      window.innerWidth - edgeInset * 2,
+    );
+    const heightScale =
+      panelHeight > 0 ? availableOverlayHeight / panelHeight : 1;
+    const widthScale = panelWidth > 0 ? availableWidth / panelWidth : 1;
+    const panelScale = Math.min(1, heightScale, widthScale);
+    panel.style.setProperty(
+      "--weather-panel-scale",
+      `${(Number.isFinite(panelScale) ? Math.max(0, panelScale) : 1).toFixed(3)}`,
+    );
+
     if (!stationFilter) {
       return;
     }
 
-    const timelineTop = controls.timeline.getBoundingClientRect().top;
-    const height = Math.max(
-      0,
-      Math.floor(timelineTop - stationFilterTimelineGap),
-    );
     document.documentElement.style.setProperty(
       "--station-filter-height",
-      `${height}px`,
+      `${availableStationFilterHeight}px`,
     );
   };
 
@@ -1048,6 +1082,10 @@ export async function appendWeatherOverlay(
     document.body.classList.toggle("weather-impact-active", isActive);
     options.onStationHoverChange?.(null);
     drawImpactScatter();
+    window.requestAnimationFrame(() => {
+      syncStationFilterHeight();
+      document.dispatchEvent(new CustomEvent("weather-impact-layout-change"));
+    });
   };
 
   const showImpactTooltip = (event: MouseEvent, datum: WeatherImpactDatum) => {
@@ -1093,8 +1131,8 @@ export async function appendWeatherOverlay(
     scatterContainer.replaceChildren();
 
     const rect = scatterContainer.getBoundingClientRect();
-    const width = Math.max(320, rect.width || 520);
-    const height = Math.max(360, Math.min(560, rect.height || 440));
+    const width = Math.max(260, rect.width || 520);
+    const height = Math.max(180, Math.min(560, rect.height || 440));
 
     if (data.length === 0) {
       const empty = document.createElement("div");
@@ -1104,9 +1142,12 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    const margin = { top: 30, right: 22, bottom: 66, left: 58 };
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
+    const isCompact = width < 520 || height < 340;
+    const margin = isCompact
+      ? { top: 26, right: 14, bottom: 54, left: 48 }
+      : { top: 30, right: 22, bottom: 66, left: 58 };
+    const innerWidth = Math.max(1, width - margin.left - margin.right);
+    const innerHeight = Math.max(1, height - margin.top - margin.bottom);
 
     const xExtent = d3.extent(data, (d) => d.weatherValue);
     let xMin = xExtent[0] ?? 0;
@@ -1132,7 +1173,7 @@ export async function appendWeatherOverlay(
     const radiusScale = d3
       .scaleSqrt()
       .domain([1, delayCountMax])
-      .range([4, 18]);
+      .range(isCompact ? [3, 12] : [4, 18]);
 
     const svgElement = d3
       .select(scatterContainer)
@@ -1153,7 +1194,7 @@ export async function appendWeatherOverlay(
       .call(
         d3
           .axisLeft(yScale)
-          .ticks(5)
+          .ticks(isCompact ? 4 : 5)
           .tickSize(-innerWidth)
           .tickFormat(() => ""),
       )
@@ -1163,12 +1204,12 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("class", "weather-impact-axis")
       .attr("transform", `translate(0, ${innerHeight})`)
-      .call(d3.axisBottom(xScale).ticks(6));
+      .call(d3.axisBottom(xScale).ticks(isCompact ? 4 : 6));
 
     chart
       .append("g")
       .attr("class", "weather-impact-axis")
-      .call(d3.axisLeft(yScale).ticks(5));
+      .call(d3.axisLeft(yScale).ticks(isCompact ? 4 : 5));
 
     const config = WEATHER_VARIABLES[activeVariableKey];
 
@@ -1196,13 +1237,15 @@ export async function appendWeatherOverlay(
       .attr("y", -10)
       .text("Weather Impact Scatterplot");
 
-    chart
-      .append("text")
-      .attr("class", "weather-impact-note")
-      .attr("x", innerWidth)
-      .attr("y", -10)
-      .attr("text-anchor", "end")
-      .text("point = station, size = delay count");
+    if (!isCompact) {
+      chart
+        .append("text")
+        .attr("class", "weather-impact-note")
+        .attr("x", innerWidth)
+        .attr("y", -10)
+        .attr("text-anchor", "end")
+        .text("point = station, size = delay count");
+    }
 
     chart
       .append("g")
@@ -1232,6 +1275,21 @@ export async function appendWeatherOverlay(
         tooltip.style("display", "none");
       });
   };
+
+  if (typeof ResizeObserver !== "undefined") {
+    let scatterResizeFrame: number | null = null;
+    const scatterResizeObserver = new ResizeObserver(() => {
+      if (scatterResizeFrame !== null) {
+        window.cancelAnimationFrame(scatterResizeFrame);
+      }
+
+      scatterResizeFrame = window.requestAnimationFrame(() => {
+        scatterResizeFrame = null;
+        drawImpactScatter();
+      });
+    });
+    scatterResizeObserver.observe(scatterContainer);
+  }
 
   const drawTimelineChart = () => {
     if (!activeDataset || !controls.chartContainer) {
