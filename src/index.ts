@@ -149,10 +149,7 @@ function getMapFocusRect() {
     bottom: viewportRect.bottom,
   };
 
-  if (
-    document.body.classList.contains("weather-impact-active") &&
-    viewportRect
-  ) {
+  if (viewportRect) {
     const panelRect = document
       .querySelector<HTMLElement>(".weather-panel")
       ?.getBoundingClientRect();
@@ -163,6 +160,7 @@ function getMapFocusRect() {
 
     if (
       panelRect &&
+      panelRect.width > 0 &&
       panelRect.right > viewportRect.left &&
       panelRect.left < viewportRect.right
     ) {
@@ -174,6 +172,7 @@ function getMapFocusRect() {
 
     if (
       timelineRect &&
+      timelineRect.height > 0 &&
       timelineRect.top > viewportRect.top &&
       timelineRect.top < viewportRect.bottom
     ) {
@@ -507,25 +506,48 @@ function focusState(state: string | null, zoomToState = false) {
   }
 }
 
-function refitFocusedStateToMapFocusRect() {
-  if (!focusedState || !zoom) {
+function transformForGermany() {
+  const [[x0, y0], [x1, y1]] = geoPath.bounds(geojson);
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const focusRect = getMapFocusRect();
+  const fitPadding = Math.min(
+    40,
+    focusRect.width * 0.05,
+    focusRect.height * 0.05,
+  );
+  const usableWidth = Math.max(180, focusRect.width - fitPadding * 2);
+  const usableHeight = Math.max(180, focusRect.height - fitPadding * 2);
+  const scale = Math.min(usableWidth / dx, usableHeight / dy);
+  const translateX = focusRect.centerX - (scale * (x0 + x1)) / 2;
+  const translateY = focusRect.centerY - (scale * (y0 + y1)) / 2;
+
+  return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
+}
+
+function refitMap(transition = false) {
+  if (!zoom) {
     return;
   }
 
-  const nextTransform = transformForState(focusedState);
+  const nextTransform = focusedState ? transformForState(focusedState) : transformForGermany();
 
   if (!nextTransform) {
     return;
   }
 
-  map_svg
-    .transition()
-    .duration(350)
-    .call(zoom.transform, nextTransform);
+  if (transition) {
+    map_svg
+      .transition()
+      .duration(350)
+      .call(zoom.transform, nextTransform);
+  } else {
+    map_svg.call(zoom.transform, nextTransform);
+  }
 }
 
 document.addEventListener("weather-impact-layout-change", () => {
-  window.requestAnimationFrame(refitFocusedStateToMapFocusRect);
+  window.requestAnimationFrame(() => refitMap(true));
 });
 
 function stateAtViewportCenter() {
@@ -1449,6 +1471,13 @@ applyTemperatureView();
 
 const mapViewport = getRequiredElement<HTMLElement>("#map-viewport");
 mapViewport.append(map_svg.node()!);
+
+// Center and fit the Germany map to the visual area initially
+refitMap(false);
+
+window.addEventListener("resize", () => {
+  refitMap(false);
+});
 
 document.body.append(tooltip.node()!);
 
