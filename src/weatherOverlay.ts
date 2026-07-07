@@ -1283,13 +1283,9 @@ export async function appendWeatherOverlay(
       visualizationLayoutWidth(scatterContainer, 520),
     );
     const availableHeight = panelAvailableVisualizationHeight(260, 520);
-    const measuredHeight =
-      scatterContainer.clientHeight >= 260
-        ? scatterContainer.clientHeight
-        : 440;
     const height = Math.max(
       260,
-      Math.min(availableHeight, measuredHeight),
+      Math.min(availableHeight, 440),
     );
     scatterContainer.style.height = `${height}px`;
 
