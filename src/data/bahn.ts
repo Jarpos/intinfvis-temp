@@ -218,6 +218,16 @@ export type StationDelayImpactStats = {
   weightedDelay: number;
 };
 
+export type StationDelayAddedStats = {
+  station: Station;
+  delayAdded: number;
+  entriesCount: number;
+  incomingEntriesCount: number;
+  outgoingEntriesCount: number;
+  incomingAvgDelay: number | null;
+  outgoingAvgDelay: number | null;
+};
+
 type DelayConnectionAggregate = {
   source: Station;
   target: Station;
@@ -299,6 +309,12 @@ function delayRegionPathSegment(regionName: string) {
 function delayCountForTrip(trip: DelayTrip) {
   return Number.isFinite(trip.delay_count) && trip.delay_count > 0
     ? trip.delay_count
+    : 0;
+}
+
+function entriesCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.entries_count) && trip.entries_count > 0
+    ? trip.entries_count
     : 0;
 }
 
@@ -419,6 +435,112 @@ export function buildStationDelayImpactStats(
   });
 
   return statsByEva;
+}
+
+export function buildStationDelayAddedStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+) {
+  type DirectionStats = {
+    entriesCount: number;
+    weightedDelay: number;
+  };
+  type StationAccumulator = {
+    station: Station;
+    incoming: DirectionStats;
+    outgoing: DirectionStats;
+  };
+
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const statsByEva = new Map<number, StationAccumulator>();
+
+  function stationStats(station: Station) {
+    let stats = statsByEva.get(station.eva);
+
+    if (!stats) {
+      stats = {
+        station,
+        incoming: { entriesCount: 0, weightedDelay: 0 },
+        outgoing: { entriesCount: 0, weightedDelay: 0 },
+      };
+      statsByEva.set(station.eva, stats);
+    }
+
+    return stats;
+  }
+
+  trips.forEach((trip) => {
+    if (
+      trip.from_stop_id === trip.to_stop_id ||
+      !Number.isFinite(trip.avg_delay)
+    ) {
+      return;
+    }
+
+    const entriesCount = entriesCountForTrip(trip);
+
+    if (entriesCount <= 0) {
+      return;
+    }
+
+    const source = visibleStationsByEva.get(trip.from_stop_id);
+    const target = visibleStationsByEva.get(trip.to_stop_id);
+
+    if (!source || !target) {
+      return;
+    }
+
+    const weightedDelay = trip.avg_delay * entriesCount;
+    const sourceStats = stationStats(source);
+    const targetStats = stationStats(target);
+
+    sourceStats.outgoing.entriesCount += entriesCount;
+    sourceStats.outgoing.weightedDelay += weightedDelay;
+    targetStats.incoming.entriesCount += entriesCount;
+    targetStats.incoming.weightedDelay += weightedDelay;
+  });
+
+  const result = new Map<number, StationDelayAddedStats>();
+
+  statsByEva.forEach((stats, eva) => {
+    const incomingAvgDelay =
+      stats.incoming.entriesCount > 0
+        ? stats.incoming.weightedDelay / stats.incoming.entriesCount
+        : null;
+    const outgoingAvgDelay =
+      stats.outgoing.entriesCount > 0
+        ? stats.outgoing.weightedDelay / stats.outgoing.entriesCount
+        : null;
+
+    let delayAdded: number | null = null;
+
+    if (incomingAvgDelay !== null && outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay - incomingAvgDelay;
+    } else if (outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay;
+    } else if (incomingAvgDelay !== null) {
+      delayAdded = incomingAvgDelay;
+    }
+
+    if (delayAdded === null || !Number.isFinite(delayAdded)) {
+      return;
+    }
+
+    result.set(eva, {
+      station: stats.station,
+      delayAdded,
+      entriesCount:
+        stats.incoming.entriesCount + stats.outgoing.entriesCount,
+      incomingEntriesCount: stats.incoming.entriesCount,
+      outgoingEntriesCount: stats.outgoing.entriesCount,
+      incomingAvgDelay,
+      outgoingAvgDelay,
+    });
+  });
+
+  return result;
 }
 
 export async function loadDelayConnections(
