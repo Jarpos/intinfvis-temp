@@ -54,7 +54,11 @@ type WeatherOverlay = {
 };
 
 type WeatherVariableKey = "temperature_2m" | "precipitation" | "snow_depth";
-type WeatherImpactMode = "none" | "weather-impact" | "worst-best-stations";
+type WeatherImpactMode =
+  | "none"
+  | "weather-impact"
+  | "worst-best-stations"
+  | "delay-duration-distribution";
 
 export type WeatherOverlayController = {
   showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
@@ -209,6 +213,10 @@ function createLegend() {
       { value: "none", label: "none" },
       { value: "weather-impact", label: "weather impact" },
       { value: "worst-best-stations", label: "worst/best stations" },
+      {
+        value: "delay-duration-distribution",
+        label: "delay duration distribution",
+      },
     ],
     "none",
   );
@@ -1003,6 +1011,37 @@ export async function appendWeatherOverlay(
     outgoingAvgDelayMin: number | null;
   };
 
+  type DelayDurationSample = {
+    delayMin: number;
+    count: number;
+  };
+
+  type DelayDurationBin = {
+    min: number;
+    max: number;
+    count: number;
+  };
+
+  type DelayDurationPercentile = {
+    label: string;
+    value: number;
+  };
+
+  type DelayDurationDistributionData = {
+    bins: DelayDurationBin[];
+    percentiles: DelayDurationPercentile[];
+    totalCount: number;
+  };
+
+  const delayDurationBinSizeMin = 5;
+  const delayDurationPercentiles = [
+    { label: "P25", percentile: 0.25 },
+    { label: "P50", percentile: 0.5 },
+    { label: "P75", percentile: 0.75 },
+    { label: "P90", percentile: 0.9 },
+    { label: "P95", percentile: 0.95 },
+  ];
+
   const formatSignedMinutes = (value: number) => {
     const sign = value > 0 ? "+" : "";
     return `${sign}${value.toFixed(1)} min`;
@@ -1164,14 +1203,145 @@ export async function appendWeatherOverlay(
     );
   };
 
+  const weightedPercentile = (
+    samples: DelayDurationSample[],
+    percentile: number,
+    totalCount: number,
+  ) => {
+    const threshold = totalCount * percentile;
+    let cumulative = 0;
+
+    for (const sample of samples) {
+      cumulative += sample.count;
+
+      if (cumulative >= threshold) {
+        return sample.delayMin;
+      }
+    }
+
+    return samples.at(-1)?.delayMin ?? 0;
+  };
+
+  const getDelayDurationDistributionData =
+    (): DelayDurationDistributionData | null => {
+      if (!activeDataset || currentVisibleStations.length === 0) {
+        return null;
+      }
+
+      const hours = weatherImpactHours();
+      const trips = weatherImpactTrips(hours);
+
+      if (hours.length === 0 || trips.length === 0) {
+        return null;
+      }
+
+      const visibleStationsByEva = new Set(
+        currentVisibleStations.map((station) => station.eva),
+      );
+      const samples: DelayDurationSample[] = [];
+
+      trips.forEach((trip) => {
+        const fromVisible = visibleStationsByEva.has(trip.from_stop_id);
+        const toVisible = visibleStationsByEva.has(trip.to_stop_id);
+        const isSelfConnection = trip.from_stop_id === trip.to_stop_id;
+
+        const count =
+          Number.isFinite(trip.delay_count) && trip.delay_count > 0
+            ? trip.delay_count
+            : 0;
+        const delayMin = trip.avg_delay / 60;
+
+        if (
+          count <= 0 ||
+          !Number.isFinite(delayMin) ||
+          delayMin < 0
+        ) {
+          return;
+        }
+
+        const addSample = () => {
+          samples.push({ delayMin, count });
+        };
+
+        if (impactDirection === "both") {
+          if (fromVisible) {
+            addSample();
+          }
+
+          if (toVisible && !isSelfConnection) {
+            addSample();
+          }
+
+          return;
+        }
+
+        if (isSelfConnection) {
+          return;
+        }
+
+        if (impactDirection === "incoming" && toVisible) {
+          addSample();
+        }
+
+        if (impactDirection === "outgoing" && fromVisible) {
+          addSample();
+        }
+      });
+
+      if (samples.length === 0) {
+        return null;
+      }
+
+      const sortedSamples = samples.sort((a, b) =>
+        d3.ascending(a.delayMin, b.delayMin),
+      );
+      const totalCount = d3.sum(sortedSamples, (sample) => sample.count);
+      const maxDelayMin = d3.max(sortedSamples, (sample) => sample.delayMin) ?? 0;
+      const binCount = Math.max(
+        1,
+        Math.ceil(maxDelayMin / delayDurationBinSizeMin),
+      );
+      const bins = d3
+        .range(binCount)
+        .map((index) => ({
+          min: index * delayDurationBinSizeMin,
+          max: (index + 1) * delayDurationBinSizeMin,
+          count: 0,
+        }));
+
+      sortedSamples.forEach((sample) => {
+        const binIndex = Math.min(
+          bins.length - 1,
+          Math.floor(sample.delayMin / delayDurationBinSizeMin),
+        );
+
+        bins[binIndex].count += sample.count;
+      });
+
+      return {
+        bins,
+        percentiles: delayDurationPercentiles.map(({ label, percentile }) => ({
+          label,
+          value: weightedPercentile(sortedSamples, percentile, totalCount),
+        })),
+        totalCount,
+      };
+    };
+
   const setImpactMode = (mode: WeatherImpactMode) => {
     impactMode = mode;
     const isActive = impactMode !== "none";
     impactPanel.hidden = !isActive;
-    directionDropdown.hidden = impactMode !== "weather-impact";
+    directionDropdown.hidden =
+      impactMode !== "weather-impact" &&
+      impactMode !== "delay-duration-distribution";
     scatterContainer.classList.toggle(
       "is-station-delay-chart",
       impactMode === "worst-best-stations",
+    );
+    scatterContainer.classList.toggle(
+      "is-delay-duration-distribution",
+      impactMode === "delay-duration-distribution",
     );
     document.body.classList.toggle("weather-impact-active", isActive);
     document.body.classList.toggle(
@@ -1240,6 +1410,28 @@ export async function appendWeatherOverlay(
         outgoingLine,
         countLine,
       );
+    tooltip
+      .style("display", "block")
+      .style("left", `${event.pageX + 10}px`)
+      .style("top", `${event.pageY + 10}px`)
+      .style("background", COLORS.TOOLTIP.BACKGROUND);
+  };
+
+  const showDelayDurationBinTooltip = (
+    event: MouseEvent,
+    datum: DelayDurationBin,
+  ) => {
+    const durationLine = document.createElement("div");
+    durationLine.textContent = `${datum.min.toFixed(0)}-${datum.max.toFixed(
+      0,
+    )} min`;
+
+    const countLine = document.createElement("div");
+    countLine.textContent = `section count: ${datum.count.toLocaleString(
+      "de-DE",
+    )}`;
+
+    tooltip.node()?.replaceChildren(durationLine, countLine);
     tooltip
       .style("display", "block")
       .style("left", `${event.pageX + 10}px`)
@@ -1623,6 +1815,195 @@ export async function appendWeatherOverlay(
       .text((d) => formatSignedMinutes(d.delayAddedMin));
   };
 
+  const drawDelayDurationDistribution = () => {
+    scatterContainer.setAttribute(
+      "aria-label",
+      "Delay duration distribution",
+    );
+    const data = getDelayDurationDistributionData();
+    scatterContainer.replaceChildren();
+
+    const width = Math.max(
+      280,
+      visualizationLayoutWidth(scatterContainer, 620),
+    );
+    const availableHeight = panelAvailableVisualizationHeight(280, 540);
+    const height = Math.max(280, Math.min(availableHeight, 440));
+    scatterContainer.style.height = `${height}px`;
+
+    if (!data || data.bins.length === 0 || data.totalCount <= 0) {
+      const empty = document.createElement("div");
+      empty.className = "weather-impact-empty";
+      empty.textContent =
+        "No delay duration data for the current selection.";
+      scatterContainer.append(empty);
+      return;
+    }
+
+    const isCompact = width < 560 || height < 360;
+    const margin = isCompact
+      ? { top: 48, right: 28, bottom: 58, left: 62 }
+      : { top: 54, right: 34, bottom: 70, left: 76 };
+    const innerWidth = Math.max(1, width - margin.left - margin.right);
+    const innerHeight = Math.max(1, height - margin.top - margin.bottom);
+    const xMax = data.bins.at(-1)?.max ?? delayDurationBinSizeMin;
+    const yMax = d3.max(data.bins, (bin) => bin.count) ?? 1;
+    const xScale = d3
+      .scaleLinear()
+      .domain([0, xMax])
+      .range([0, innerWidth]);
+    const yScale = d3
+      .scaleLinear()
+      .domain([0, yMax])
+      .nice(isCompact ? 4 : 5)
+      .range([innerHeight, 0]);
+
+    const svgElement = d3
+      .select(scatterContainer)
+      .append("svg")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("class", "weather-impact-svg weather-delay-duration-svg")
+      .attr("viewBox", `0 0 ${width} ${height}`)
+      .style("display", "block");
+
+    const chart = svgElement
+      .append("g")
+      .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-grid weather-delay-duration-grid")
+      .call(
+        d3
+          .axisLeft(yScale)
+          .ticks(isCompact ? 4 : 5)
+          .tickSize(-innerWidth)
+          .tickFormat(() => ""),
+      )
+      .call((axis) => axis.select(".domain").remove());
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-axis")
+      .attr("transform", `translate(0, ${innerHeight})`)
+      .call(d3.axisBottom(xScale).ticks(isCompact ? 4 : 6));
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-axis")
+      .call(
+        d3
+          .axisLeft(yScale)
+          .ticks(isCompact ? 4 : 5)
+          .tickFormat((value) => d3.format("~s")(Number(value))),
+      );
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-title")
+      .attr("x", 0)
+      .attr("y", -30)
+      .text("Delay Duration Distribution");
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-note")
+      .attr("x", innerWidth)
+      .attr("y", -30)
+      .attr("text-anchor", "end")
+      .text(
+        `${impactDirection} - ${impactAggregate ? "selected range" : "selected day"} - ${data.totalCount.toLocaleString(
+          "de-DE",
+        )} sections`,
+      );
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-axis-label")
+      .attr("x", innerWidth / 2)
+      .attr("y", innerHeight + 48)
+      .attr("text-anchor", "middle")
+      .text("Delay duration (min)");
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-axis-label")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -innerHeight / 2)
+      .attr("y", -44)
+      .attr("text-anchor", "middle")
+      .text("Section count");
+
+    chart
+      .append("g")
+      .attr("class", "weather-delay-duration-bars")
+      .selectAll<SVGRectElement, DelayDurationBin>("rect")
+      .data(data.bins.filter((bin) => bin.count > 0))
+      .join("rect")
+      .attr("class", "weather-delay-duration-bar")
+      .attr("x", (bin) => xScale(bin.min))
+      .attr("y", (bin) => yScale(bin.count))
+      .attr("width", (bin) =>
+        Math.max(1, xScale(bin.max) - xScale(bin.min) - 1),
+      )
+      .attr("height", (bin) => innerHeight - yScale(bin.count))
+      .attr("rx", 1)
+      .on("mouseenter", function (event, bin) {
+        d3.select(this).classed("is-highlighted", true);
+        showDelayDurationBinTooltip(event, bin);
+      })
+      .on("mousemove", (event, bin) => {
+        showDelayDurationBinTooltip(event, bin);
+      })
+      .on("mouseleave", function () {
+        d3.select(this).classed("is-highlighted", false);
+        tooltip.style("display", "none");
+      });
+
+    let previousPercentileX = -Infinity;
+    let labelStack = 0;
+    const percentileLabels = data.percentiles.map((percentile) => {
+      const x = xScale(percentile.value);
+
+      if (x - previousPercentileX < 24) {
+        labelStack += 1;
+      } else {
+        labelStack = 0;
+      }
+
+      previousPercentileX = x;
+
+      return {
+        ...percentile,
+        x,
+        y: 16 + (labelStack % 3) * 15,
+      };
+    });
+
+    const percentileGroups = chart
+      .append("g")
+      .attr("class", "weather-delay-duration-percentiles")
+      .selectAll<SVGGElement, (typeof percentileLabels)[number]>("g")
+      .data(percentileLabels)
+      .join("g")
+      .attr("class", "weather-delay-duration-percentile")
+      .attr("transform", (percentile) => `translate(${percentile.x}, 0)`);
+
+    percentileGroups
+      .append("line")
+      .attr("class", "weather-delay-duration-percentile-line")
+      .attr("y1", 0)
+      .attr("y2", innerHeight);
+
+    percentileGroups
+      .append("text")
+      .attr("class", "weather-delay-duration-percentile-label")
+      .attr("x", 4)
+      .attr("y", (percentile) => percentile.y)
+      .text((percentile) => percentile.label);
+  };
+
   const drawImpactVisualization = () => {
     if (impactMode === "weather-impact") {
       drawImpactScatter();
@@ -1631,6 +2012,11 @@ export async function appendWeatherOverlay(
 
     if (impactMode === "worst-best-stations") {
       drawWorstBestStations();
+      return;
+    }
+
+    if (impactMode === "delay-duration-distribution") {
+      drawDelayDurationDistribution();
       return;
     }
 
