@@ -1349,42 +1349,43 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     syncInputs();
   }
 
-  function updateFromInput(value: string) {
-    const nextDate = parseDateInputValue(value);
+  const applyButton = getRequiredElement<HTMLButtonElement>("#apply-time-range");
 
-    if (!nextDate) {
+  function handleApply() {
+    const nextFromDate = parseDateInputValue(fromInput.value);
+    const nextToDate = parseDateInputValue(toInput.value);
+
+    if (!nextFromDate || !nextToDate) {
       return;
     }
 
-    fromDate = startOfDay(nextDate);
+    let nextFrom = startOfDay(nextFromDate);
+    let nextTo = startOfDay(nextToDate);
 
-    if (fromDate > toDate) {
-      toDate = fromDate;
+    if (nextFrom > nextTo) {
+      const temp = nextFrom;
+      nextFrom = nextTo;
+      nextTo = temp;
     }
+
+    fromDate = nextFrom;
+    toDate = nextTo;
 
     syncInputs();
     notifySelectedDateChange();
   }
 
-  function updateToInput(value: string) {
-    const nextDate = parseDateInputValue(value);
-
-    if (!nextDate) {
-      return;
+  applyButton.addEventListener("click", handleApply);
+  fromInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleApply();
     }
-
-    toDate = startOfDay(nextDate);
-
-    if (toDate < fromDate) {
-      fromDate = toDate;
+  });
+  toInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleApply();
     }
-
-    syncInputs();
-    notifySelectedDateChange();
-  }
-
-  fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
-  toInput.addEventListener("change", () => updateToInput(toInput.value));
+  });
   document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
     const { from, to, selected, source } = (
       event as CustomEvent<SelectedDateChangeDetail>
