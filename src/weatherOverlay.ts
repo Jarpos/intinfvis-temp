@@ -58,7 +58,8 @@ type WeatherImpactMode =
   | "none"
   | "weather-impact"
   | "worst-best-stations"
-  | "delay-duration-distribution";
+  | "delay-duration-distribution"
+  | "weekdays-distribution";
 
 export type WeatherOverlayController = {
   showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
@@ -216,6 +217,10 @@ function createLegend() {
       {
         value: "delay-duration-distribution",
         label: "delay duration distribution",
+      },
+      {
+        value: "weekdays-distribution",
+        label: "weekdays distribution",
       },
     ],
     "none",
@@ -1033,6 +1038,14 @@ export async function appendWeatherOverlay(
     totalCount: number;
   };
 
+  type WeekdayDistributionDatum = {
+    index: number;
+    label: string;
+    delayCount: number;
+    avgDelayMin: number | null;
+    weightedDelay: number;
+  };
+
   const delayDurationBinSizeMin = 5;
   const delayDurationPercentiles = [
     { label: "P25", percentile: 0.25 },
@@ -1119,6 +1132,18 @@ export async function appendWeatherOverlay(
     const date = hours[0] ? dayKey(hours[0].time) : null;
 
     return date ? (currentDailyDelayTrips[date] ?? []) : [];
+  };
+
+  const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  const weekdayIndexForDateKey = (date: string) => {
+    const parsedDate = new Date(`${date}T12:00:00`);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return null;
+    }
+
+    return (parsedDate.getDay() + 6) % 7;
   };
 
   const getWeatherImpactData = (): WeatherImpactDatum[] => {
@@ -1326,7 +1351,90 @@ export async function appendWeatherOverlay(
         })),
         totalCount,
       };
-    };
+  };
+
+  const getWeekdayDistributionData = (): WeekdayDistributionDatum[] => {
+    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map((label, index) => ({
+      index,
+      label,
+      delayCount: 0,
+      avgDelayMin: null,
+      weightedDelay: 0,
+    }));
+
+    if (!activeDataset || !currentDailyDelayTrips || currentVisibleStations.length === 0) {
+      return buckets;
+    }
+
+    const dailyDelayTrips = currentDailyDelayTrips;
+    const visibleStationsByEva = new Set(
+      currentVisibleStations.map((station) => station.eva),
+    );
+    const selectedDates = Object.keys(dailyDelayTrips);
+
+    selectedDates.forEach((date) => {
+      const weekdayIndex = weekdayIndexForDateKey(date);
+      const trips = dailyDelayTrips[date] ?? [];
+
+      if (weekdayIndex === null || trips.length === 0) {
+        return;
+      }
+
+      const bucket = buckets[weekdayIndex];
+
+      trips.forEach((trip) => {
+        const fromVisible = visibleStationsByEva.has(trip.from_stop_id);
+        const toVisible = visibleStationsByEva.has(trip.to_stop_id);
+        const isSelfConnection = trip.from_stop_id === trip.to_stop_id;
+        const count =
+          Number.isFinite(trip.delay_count) && trip.delay_count > 0
+            ? trip.delay_count
+            : 0;
+
+        if (count <= 0 || !Number.isFinite(trip.avg_delay)) {
+          return;
+        }
+
+        const addDelay = () => {
+          bucket.delayCount += count;
+          bucket.weightedDelay += trip.avg_delay * count;
+        };
+
+        if (impactDirection === "both") {
+          if (fromVisible) {
+            addDelay();
+          }
+
+          if (toVisible && !isSelfConnection) {
+            addDelay();
+          }
+
+          return;
+        }
+
+        if (isSelfConnection) {
+          return;
+        }
+
+        if (impactDirection === "incoming" && toVisible) {
+          addDelay();
+        }
+
+        if (impactDirection === "outgoing" && fromVisible) {
+          addDelay();
+        }
+      });
+    });
+
+    buckets.forEach((bucket) => {
+      bucket.avgDelayMin =
+        bucket.delayCount > 0
+          ? bucket.weightedDelay / bucket.delayCount / 60
+          : null;
+    });
+
+    return buckets;
+  };
 
   const setImpactMode = (mode: WeatherImpactMode) => {
     impactMode = mode;
@@ -1334,7 +1442,12 @@ export async function appendWeatherOverlay(
     impactPanel.hidden = !isActive;
     directionDropdown.hidden =
       impactMode !== "weather-impact" &&
-      impactMode !== "delay-duration-distribution";
+      impactMode !== "delay-duration-distribution" &&
+      impactMode !== "weekdays-distribution";
+    aggregateCheckbox.parentElement?.toggleAttribute(
+      "hidden",
+      impactMode === "weekdays-distribution",
+    );
     scatterContainer.classList.toggle(
       "is-station-delay-chart",
       impactMode === "worst-best-stations",
@@ -1342,6 +1455,10 @@ export async function appendWeatherOverlay(
     scatterContainer.classList.toggle(
       "is-delay-duration-distribution",
       impactMode === "delay-duration-distribution",
+    );
+    scatterContainer.classList.toggle(
+      "is-weekday-distribution",
+      impactMode === "weekdays-distribution",
     );
     document.body.classList.toggle("weather-impact-active", isActive);
     document.body.classList.toggle(
@@ -1432,6 +1549,31 @@ export async function appendWeatherOverlay(
     )}`;
 
     tooltip.node()?.replaceChildren(durationLine, countLine);
+    tooltip
+      .style("display", "block")
+      .style("left", `${event.pageX + 10}px`)
+      .style("top", `${event.pageY + 10}px`)
+      .style("background", COLORS.TOOLTIP.BACKGROUND);
+  };
+
+  const showWeekdayDistributionTooltip = (
+    event: MouseEvent,
+    datum: WeekdayDistributionDatum,
+  ) => {
+    const weekdayLine = document.createElement("div");
+    weekdayLine.textContent = datum.label;
+
+    const countLine = document.createElement("div");
+    countLine.textContent = `number of delays: ${datum.delayCount.toLocaleString(
+      "de-DE",
+    )}`;
+
+    const avgDelayLine = document.createElement("div");
+    avgDelayLine.textContent = `avg delay: ${
+      datum.avgDelayMin === null ? "N/A" : `${datum.avgDelayMin.toFixed(1)} min`
+    }`;
+
+    tooltip.node()?.replaceChildren(weekdayLine, countLine, avgDelayLine);
     tooltip
       .style("display", "block")
       .style("left", `${event.pageX + 10}px`)
@@ -2004,6 +2146,262 @@ export async function appendWeatherOverlay(
       .text((percentile) => percentile.label);
   };
 
+  const drawWeekdayDistribution = () => {
+    scatterContainer.setAttribute(
+      "aria-label",
+      "Weekdays distribution of delays",
+    );
+    const data = getWeekdayDistributionData();
+    scatterContainer.replaceChildren();
+
+    const width = Math.max(
+      280,
+      visualizationLayoutWidth(scatterContainer, 620),
+    );
+    const availableHeight = panelAvailableVisualizationHeight(280, 540);
+    const height = Math.max(280, Math.min(availableHeight, 440));
+    scatterContainer.style.height = `${height}px`;
+
+    const totalDelayCount = d3.sum(data, (datum) => datum.delayCount);
+
+    if (totalDelayCount <= 0) {
+      const empty = document.createElement("div");
+      empty.className = "weather-impact-empty";
+      empty.textContent =
+        "No weekday delay data for the current selection.";
+      scatterContainer.append(empty);
+      return;
+    }
+
+    const isCompact = width < 560 || height < 360;
+    const margin = isCompact
+      ? { top: 52, right: 62, bottom: 70, left: 68 }
+      : { top: 58, right: 78, bottom: 78, left: 82 };
+    const innerWidth = Math.max(1, width - margin.left - margin.right);
+    const innerHeight = Math.max(1, height - margin.top - margin.bottom);
+    const countMax = d3.max(data, (datum) => datum.delayCount) ?? 1;
+    const delayMax = d3.max(data, (datum) => datum.avgDelayMin ?? 0) ?? 1;
+    const xScale = d3
+      .scalePoint<string>()
+      .domain(data.map((datum) => datum.label))
+      .range([0, innerWidth])
+      .padding(0.45);
+    const yCountScale = d3
+      .scaleLinear()
+      .domain([0, countMax])
+      .nice(isCompact ? 4 : 5)
+      .range([innerHeight, 0]);
+    const yDelayScale = d3
+      .scaleLinear()
+      .domain([0, delayMax])
+      .nice(isCompact ? 4 : 5)
+      .range([innerHeight, 0]);
+    const xForDatum = (datum: WeekdayDistributionDatum) =>
+      xScale(datum.label) ?? 0;
+
+    const countLine = d3
+      .line<WeekdayDistributionDatum>()
+      .x(xForDatum)
+      .y((datum) => yCountScale(datum.delayCount));
+    const delayLine = d3
+      .line<WeekdayDistributionDatum>()
+      .defined((datum) => datum.avgDelayMin !== null)
+      .x(xForDatum)
+      .y((datum) => yDelayScale(datum.avgDelayMin ?? 0));
+
+    const svgElement = d3
+      .select(scatterContainer)
+      .append("svg")
+      .attr("width", width)
+      .attr("height", height)
+      .attr("class", "weather-impact-svg weather-weekday-distribution-svg")
+      .attr("viewBox", `0 0 ${width} ${height}`)
+      .style("display", "block");
+
+    const chart = svgElement
+      .append("g")
+      .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-grid weather-weekday-grid")
+      .call(
+        d3
+          .axisLeft(yCountScale)
+          .ticks(isCompact ? 4 : 5)
+          .tickSize(-innerWidth)
+          .tickFormat(() => ""),
+      )
+      .call((axis) => axis.select(".domain").remove());
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-axis")
+      .attr("transform", `translate(0, ${innerHeight})`)
+      .call(d3.axisBottom(xScale));
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-axis weather-weekday-count-axis")
+      .call(
+        d3
+          .axisLeft(yCountScale)
+          .ticks(isCompact ? 4 : 5)
+          .tickFormat((value) => d3.format("~s")(Number(value))),
+      );
+
+    chart
+      .append("g")
+      .attr("class", "weather-impact-axis weather-weekday-delay-axis")
+      .attr("transform", `translate(${innerWidth}, 0)`)
+      .call(
+        d3
+          .axisRight(yDelayScale)
+          .ticks(isCompact ? 4 : 5)
+          .tickFormat((value) => Number(value).toFixed(1)),
+      );
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-title")
+      .attr("x", 0)
+      .attr("y", -32)
+      .text("Weekdays Distribution");
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-note")
+      .attr("x", innerWidth)
+      .attr("y", -32)
+      .attr("text-anchor", "end")
+      .text(`${impactDirection} - selected range`);
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-axis-label")
+      .attr("x", innerWidth / 2)
+      .attr("y", innerHeight + 50)
+      .attr("text-anchor", "middle")
+      .text("Day of week");
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-axis-label weather-weekday-count-label")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -innerHeight / 2)
+      .attr("y", -48)
+      .attr("text-anchor", "middle")
+      .text("Number of delays");
+
+    chart
+      .append("text")
+      .attr("class", "weather-impact-axis-label weather-weekday-delay-label")
+      .attr("transform", "rotate(90)")
+      .attr("x", innerHeight / 2)
+      .attr("y", -innerWidth - 52)
+      .attr("text-anchor", "middle")
+      .text("Avg delay (min)");
+
+    const legend = chart
+      .append("g")
+      .attr("class", "weather-weekday-legend")
+      .attr("transform", `translate(0, ${innerHeight + 66})`);
+
+    legend
+      .append("line")
+      .attr("class", "weather-weekday-line is-count")
+      .attr("x1", 0)
+      .attr("x2", 18)
+      .attr("y1", 0)
+      .attr("y2", 0);
+    legend
+      .append("text")
+      .attr("x", 24)
+      .attr("y", 0)
+      .attr("dy", "0.35em")
+      .text("number of delays");
+    legend
+      .append("line")
+      .attr("class", "weather-weekday-line is-delay")
+      .attr("x1", 142)
+      .attr("x2", 160)
+      .attr("y1", 0)
+      .attr("y2", 0);
+    legend
+      .append("text")
+      .attr("x", 166)
+      .attr("y", 0)
+      .attr("dy", "0.35em")
+      .text("avg delay");
+
+    chart
+      .append("path")
+      .datum(data)
+      .attr("class", "weather-weekday-line is-count")
+      .attr("d", countLine);
+
+    chart
+      .append("path")
+      .datum(data)
+      .attr("class", "weather-weekday-line is-delay")
+      .attr("d", delayLine);
+
+    const pointGroups = chart.append("g").attr("class", "weather-weekday-points");
+
+    pointGroups
+      .selectAll<SVGCircleElement, WeekdayDistributionDatum>("circle.count")
+      .data(data)
+      .join("circle")
+      .attr(
+        "class",
+        (datum) => `weather-weekday-point is-count weekday-${datum.index}`,
+      )
+      .attr("cx", xForDatum)
+      .attr("cy", (datum) => yCountScale(datum.delayCount))
+      .attr("r", 4);
+
+    pointGroups
+      .selectAll<SVGCircleElement, WeekdayDistributionDatum>("circle.delay")
+      .data(data.filter((datum) => datum.avgDelayMin !== null))
+      .join("circle")
+      .attr(
+        "class",
+        (datum) => `weather-weekday-point is-delay weekday-${datum.index}`,
+      )
+      .attr("cx", xForDatum)
+      .attr("cy", (datum) => yDelayScale(datum.avgDelayMin ?? 0))
+      .attr("r", 4);
+
+    const hoverWidth = Math.max(28, innerWidth / data.length);
+
+    chart
+      .append("g")
+      .attr("class", "weather-weekday-hover-targets")
+      .selectAll<SVGRectElement, WeekdayDistributionDatum>("rect")
+      .data(data)
+      .join("rect")
+      .attr("class", "weather-weekday-hover-target")
+      .attr("x", (datum) => xForDatum(datum) - hoverWidth / 2)
+      .attr("y", 0)
+      .attr("width", hoverWidth)
+      .attr("height", innerHeight)
+      .on("mouseenter", function (event, datum) {
+        chart
+          .selectAll(`.weekday-${datum.index}`)
+          .classed("is-highlighted", true);
+        showWeekdayDistributionTooltip(event, datum);
+      })
+      .on("mousemove", (event, datum) => {
+        showWeekdayDistributionTooltip(event, datum);
+      })
+      .on("mouseleave", function (event, datum) {
+        chart
+          .selectAll(`.weekday-${datum.index}`)
+          .classed("is-highlighted", false);
+        tooltip.style("display", "none");
+      });
+  };
+
   const drawImpactVisualization = () => {
     if (impactMode === "weather-impact") {
       drawImpactScatter();
@@ -2017,6 +2415,11 @@ export async function appendWeatherOverlay(
 
     if (impactMode === "delay-duration-distribution") {
       drawDelayDurationDistribution();
+      return;
+    }
+
+    if (impactMode === "weekdays-distribution") {
+      drawWeekdayDistribution();
       return;
     }
 
