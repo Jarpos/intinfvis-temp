@@ -47,7 +47,7 @@ type DelaySummary = {
 
 function stationIconForQuayCount(quayCount: number) {
   if (Number.isFinite(quayCount) && quayCount >= 1 && quayCount <= 4) {
-    return circleStationIcon;
+    return triangleStationIcon;
   }
 
   if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
@@ -58,7 +58,7 @@ function stationIconForQuayCount(quayCount: number) {
     return starStationIcon;
   }
 
-  return triangleStationIcon;
+  return circleStationIcon;
 }
 
 function stationIconSizeMultiplier(quayCount: number) {
