@@ -1041,7 +1041,9 @@ export async function appendWeatherOverlay(
   type WeekdayDistributionDatum = {
     index: number;
     label: string;
+    dateCount: number;
     delayCount: number;
+    avgDelayCount: number;
     avgDelayMin: number | null;
     weightedDelay: number;
   };
@@ -1354,15 +1356,23 @@ export async function appendWeatherOverlay(
   };
 
   const getWeekdayDistributionData = (): WeekdayDistributionDatum[] => {
-    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map((label, index) => ({
-      index,
-      label,
-      delayCount: 0,
-      avgDelayMin: null,
-      weightedDelay: 0,
-    }));
+    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
+      (label, index) => ({
+        index,
+        label,
+        dateCount: 0,
+        delayCount: 0,
+        avgDelayCount: 0,
+        avgDelayMin: null,
+        weightedDelay: 0,
+      }),
+    );
 
-    if (!activeDataset || !currentDailyDelayTrips || currentVisibleStations.length === 0) {
+    if (
+      !activeDataset ||
+      !currentDailyDelayTrips ||
+      currentVisibleStations.length === 0
+    ) {
       return buckets;
     }
 
@@ -1376,11 +1386,16 @@ export async function appendWeatherOverlay(
       const weekdayIndex = weekdayIndexForDateKey(date);
       const trips = dailyDelayTrips[date] ?? [];
 
-      if (weekdayIndex === null || trips.length === 0) {
+      if (weekdayIndex === null) {
         return;
       }
 
       const bucket = buckets[weekdayIndex];
+      bucket.dateCount += 1;
+
+      if (trips.length === 0) {
+        return;
+      }
 
       trips.forEach((trip) => {
         const fromVisible = visibleStationsByEva.has(trip.from_stop_id);
@@ -1427,6 +1442,8 @@ export async function appendWeatherOverlay(
     });
 
     buckets.forEach((bucket) => {
+      bucket.avgDelayCount =
+        bucket.dateCount > 0 ? bucket.delayCount / bucket.dateCount : 0;
       bucket.avgDelayMin =
         bucket.delayCount > 0
           ? bucket.weightedDelay / bucket.delayCount / 60
@@ -1564,16 +1581,26 @@ export async function appendWeatherOverlay(
     weekdayLine.textContent = datum.label;
 
     const countLine = document.createElement("div");
-    countLine.textContent = `number of delays: ${datum.delayCount.toLocaleString(
+    countLine.textContent = `avg delays per day: ${datum.avgDelayCount.toLocaleString(
       "de-DE",
+      { maximumFractionDigits: 1 },
     )}`;
+
+    const totalCountLine = document.createElement("div");
+    totalCountLine.textContent = `total delays: ${datum.delayCount.toLocaleString(
+      "de-DE",
+    )} over ${datum.dateCount.toLocaleString("de-DE")} day${
+      datum.dateCount === 1 ? "" : "s"
+    }`;
 
     const avgDelayLine = document.createElement("div");
     avgDelayLine.textContent = `avg delay: ${
       datum.avgDelayMin === null ? "N/A" : `${datum.avgDelayMin.toFixed(1)} min`
     }`;
 
-    tooltip.node()?.replaceChildren(weekdayLine, countLine, avgDelayLine);
+    tooltip
+      .node()
+      ?.replaceChildren(weekdayLine, countLine, totalCountLine, avgDelayLine);
     tooltip
       .style("display", "block")
       .style("left", `${event.pageX + 10}px`)
@@ -2179,7 +2206,7 @@ export async function appendWeatherOverlay(
       : { top: 58, right: 78, bottom: 78, left: 82 };
     const innerWidth = Math.max(1, width - margin.left - margin.right);
     const innerHeight = Math.max(1, height - margin.top - margin.bottom);
-    const countMax = d3.max(data, (datum) => datum.delayCount) ?? 1;
+    const countMax = d3.max(data, (datum) => datum.avgDelayCount) ?? 1;
     const delayMax = d3.max(data, (datum) => datum.avgDelayMin ?? 0) ?? 1;
     const xScale = d3
       .scalePoint<string>()
@@ -2202,7 +2229,7 @@ export async function appendWeatherOverlay(
     const countLine = d3
       .line<WeekdayDistributionDatum>()
       .x(xForDatum)
-      .y((datum) => yCountScale(datum.delayCount));
+      .y((datum) => yCountScale(datum.avgDelayCount));
     const delayLine = d3
       .line<WeekdayDistributionDatum>()
       .defined((datum) => datum.avgDelayMin !== null)
@@ -2291,7 +2318,7 @@ export async function appendWeatherOverlay(
       .attr("x", -innerHeight / 2)
       .attr("y", -48)
       .attr("text-anchor", "middle")
-      .text("Number of delays");
+      .text("Avg delays per day");
 
     chart
       .append("text")
@@ -2319,17 +2346,17 @@ export async function appendWeatherOverlay(
       .attr("x", 24)
       .attr("y", 0)
       .attr("dy", "0.35em")
-      .text("number of delays");
+      .text("avg delays per day");
     legend
       .append("line")
       .attr("class", "weather-weekday-line is-delay")
-      .attr("x1", 142)
-      .attr("x2", 160)
+      .attr("x1", 172)
+      .attr("x2", 190)
       .attr("y1", 0)
       .attr("y2", 0);
     legend
       .append("text")
-      .attr("x", 166)
+      .attr("x", 196)
       .attr("y", 0)
       .attr("dy", "0.35em")
       .text("avg delay");
@@ -2357,7 +2384,7 @@ export async function appendWeatherOverlay(
         (datum) => `weather-weekday-point is-count weekday-${datum.index}`,
       )
       .attr("cx", xForDatum)
-      .attr("cy", (datum) => yCountScale(datum.delayCount))
+      .attr("cy", (datum) => yCountScale(datum.avgDelayCount))
       .attr("r", 4);
 
     pointGroups
