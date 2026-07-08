@@ -362,7 +362,7 @@
     }
 
     .weather-impact-point {
-        fill: #3b82f6;
+        fill: var(--weather-impact-point-color, #818cf8);
         fill-opacity: 0.62;
         stroke: rgba(255, 255, 255, 0.82);
         stroke-width: 1;

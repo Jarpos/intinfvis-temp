@@ -61,6 +61,17 @@ type WeatherImpactMode =
   | "delay-duration-distribution"
   | "weekdays-distribution";
 
+const WEATHER_TIMELINE_COLORS: Record<
+  WeatherVariableKey | "delayCount" | "avgDelay",
+  string
+> = {
+  temperature_2m: "#fbbf24",
+  precipitation: "#3b82f6",
+  snow_depth: "#ffffff",
+  delayCount: "#818cf8",
+  avgDelay: "#c084fc",
+};
+
 export type WeatherOverlayController = {
   showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
   hideTooltip: () => void;
@@ -980,23 +991,23 @@ export async function appendWeatherOverlay(
     container.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 7px; font-size: 11px;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #fbbf24;"></span>
+          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.temperature_2m};"></span>
           <span style="font-weight: 600; color: rgba(255,255,255,0.78);">temperature</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #3b82f6;"></span>
+          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.precipitation};"></span>
           <span style="font-weight: 600; color: rgba(255,255,255,0.78);">precipitation</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #ffffff;"></span>
+          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.snow_depth};"></span>
           <span style="font-weight: 600; color: rgba(255,255,255,0.78);">snowfall</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 4px;">
-          <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #818cf8;"></span>
+          <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: ${WEATHER_TIMELINE_COLORS.delayCount};"></span>
           <span style="font-weight: 600; color: rgba(255,255,255,0.78);">delay count</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: #c084fc;"></span>
+          <span style="display: inline-block; width: 8px; height: 5px; border-radius: 1px; background-color: ${WEATHER_TIMELINE_COLORS.avgDelay};"></span>
           <span style="font-weight: 600; color: rgba(255,255,255,0.78);">avg delay</span>
         </div>
       </div>
@@ -1636,6 +1647,10 @@ export async function appendWeatherOverlay(
 
   const drawImpactScatter = () => {
     scatterContainer.setAttribute("aria-label", "Weather impact scatter plot");
+    scatterContainer.style.setProperty(
+      "--weather-impact-point-color",
+      WEATHER_TIMELINE_COLORS.delayCount,
+    );
     const data = getWeatherImpactData();
     scatterContainer.replaceChildren();
 
@@ -2737,7 +2752,7 @@ export async function appendWeatherOverlay(
         TIMELINE_AXIS_COLUMN_STEP * 2
       ),
       "cm",
-      "#ffffff",
+      WEATHER_TIMELINE_COLORS.snow_depth,
       formatVal,
     );
     drawLeftAxisColumn(
@@ -2746,7 +2761,7 @@ export async function appendWeatherOverlay(
       yScalePrecip,
       -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_STEP),
       "mm",
-      "#3b82f6",
+      WEATHER_TIMELINE_COLORS.precipitation,
       formatVal,
     );
     drawLeftAxisColumn(
@@ -2755,7 +2770,7 @@ export async function appendWeatherOverlay(
       yScaleTemp,
       -TIMELINE_AXIS_PLOT_GAP,
       "°C",
-      "#fbbf24",
+      WEATHER_TIMELINE_COLORS.temperature_2m,
       formatVal,
     );
 
@@ -2766,7 +2781,7 @@ export async function appendWeatherOverlay(
       yScaleCount,
       innerWidth + TIMELINE_AXIS_PLOT_GAP,
       "count",
-      "#818cf8",
+      WEATHER_TIMELINE_COLORS.delayCount,
       formatVal,
     );
     drawRightAxisColumn(
@@ -2775,7 +2790,7 @@ export async function appendWeatherOverlay(
       yScaleDelay,
       innerWidth + TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_STEP,
       "min",
-      "#c084fc",
+      WEATHER_TIMELINE_COLORS.avgDelay,
       formatVal,
     );
 
@@ -2804,7 +2819,7 @@ export async function appendWeatherOverlay(
       .attr("height", (d) =>
         Math.max(0, innerHeight - yScaleCount(d.delaysCount)),
       )
-      .attr("fill", "#818cf8")
+      .attr("fill", WEATHER_TIMELINE_COLORS.delayCount)
       .attr("rx", 1)
       .attr("opacity", 0.7);
 
@@ -2820,7 +2835,7 @@ export async function appendWeatherOverlay(
       .attr("height", (d) =>
         Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)),
       )
-      .attr("fill", "#c084fc")
+      .attr("fill", WEATHER_TIMELINE_COLORS.avgDelay)
       .attr("rx", 1)
       .attr("opacity", 0.7);
 
@@ -2844,19 +2859,19 @@ export async function appendWeatherOverlay(
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
-      .attr("stroke", "#3b82f6")
+      .attr("stroke", WEATHER_TIMELINE_COLORS.precipitation)
       .attr("stroke-width", 1.8);
     const snowLine = linesG
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
-      .attr("stroke", "#ffffff")
+      .attr("stroke", WEATHER_TIMELINE_COLORS.snow_depth)
       .attr("stroke-width", 1.8);
     const tempLine = linesG
       .append("path")
       .datum(chartData)
       .attr("fill", "none")
-      .attr("stroke", "#fbbf24")
+      .attr("stroke", WEATHER_TIMELINE_COLORS.temperature_2m)
       .attr("stroke-width", 1.8);
 
     const precipPoints = pointsG
@@ -2866,7 +2881,7 @@ export async function appendWeatherOverlay(
       .attr("class", "precip-point")
       .attr("cy", (d) => yScalePrecip(d.precip))
       .attr("r", 3.2)
-      .attr("fill", "#3b82f6");
+      .attr("fill", WEATHER_TIMELINE_COLORS.precipitation);
     const snowPoints = pointsG
       .selectAll<SVGCircleElement, WeatherChartDatum>("circle.snow-point")
       .data(chartData.filter((d) => Number.isFinite(d.snow)))
@@ -2874,7 +2889,7 @@ export async function appendWeatherOverlay(
       .attr("class", "snow-point")
       .attr("cy", (d) => yScaleSnow(d.snow))
       .attr("r", 3.2)
-      .attr("fill", "#ffffff");
+      .attr("fill", WEATHER_TIMELINE_COLORS.snow_depth);
     const tempPoints = pointsG
       .selectAll<SVGCircleElement, WeatherChartDatum>("circle.temp-point")
       .data(chartData.filter((d) => Number.isFinite(d.temp)))
@@ -2882,7 +2897,7 @@ export async function appendWeatherOverlay(
       .attr("class", "temp-point")
       .attr("cy", (d) => yScaleTemp(d.temp))
       .attr("r", 3.2)
-      .attr("fill", "#fbbf24");
+      .attr("fill", WEATHER_TIMELINE_COLORS.temperature_2m);
 
     const selectedLine = plotG
       .append("line")
@@ -2909,19 +2924,19 @@ export async function appendWeatherOverlay(
     const hCircleTemp = hoverCirclesG
       .append("circle")
       .attr("r", 5.5)
-      .attr("fill", "#fbbf24")
+      .attr("fill", WEATHER_TIMELINE_COLORS.temperature_2m)
       .attr("stroke", "#1e293b")
       .attr("stroke-width", 1.5);
     const hCirclePrecip = hoverCirclesG
       .append("circle")
       .attr("r", 5.5)
-      .attr("fill", "#3b82f6")
+      .attr("fill", WEATHER_TIMELINE_COLORS.precipitation)
       .attr("stroke", "#1e293b")
       .attr("stroke-width", 1.5);
     const hCircleSnow = hoverCirclesG
       .append("circle")
       .attr("r", 5.5)
-      .attr("fill", "#ffffff")
+      .attr("fill", WEATHER_TIMELINE_COLORS.snow_depth)
       .attr("stroke", "#1e293b")
       .attr("stroke-width", 1.5);
 
@@ -3009,23 +3024,23 @@ export async function appendWeatherOverlay(
           `
           <div style="font-weight: 700; color: rgba(255,255,255,0.7); margin-bottom: 5px;">${dateFormatter.format(d.time)}</div>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #fbbf24;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.temperature_2m};"></span>
             <span>temperature: <strong>${d.temp.toFixed(1)} °C</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #3b82f6;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.precipitation};"></span>
             <span>precipitation: <strong>${d.precip.toFixed(1)} mm</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #ffffff;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.snow_depth};"></span>
             <span>snowfall: <strong>${d.snow.toFixed(1)} cm</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px; margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 5px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #818cf8;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.delayCount};"></span>
             <span>delay count: <strong>${d.delaysCount}</strong></span>
           </div>
           <div style="display: flex; align-items: center; gap: 6px;">
-            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: #c084fc;"></span>
+            <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background-color: ${WEATHER_TIMELINE_COLORS.avgDelay};"></span>
             <span>avg delay: <strong>${d.avgDelayMin.toFixed(1)} min</strong></span>
           </div>
         `,
