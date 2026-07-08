@@ -222,16 +222,16 @@ function createLegend() {
 
   const impactModeDropdown = createDropdown<WeatherImpactMode>(
     [
-      { value: "none", label: "none" },
-      { value: "weather-impact", label: "weather impact" },
-      { value: "worst-best-stations", label: "worst/best stations" },
+      { value: "none", label: "None" },
+      { value: "weather-impact", label: "Weather Impact" },
+      { value: "worst-best-stations", label: "Worst/Best Stations" },
       {
         value: "delay-duration-distribution",
-        label: "delay duration distribution",
+        label: "Delay Duration Distribution",
       },
       {
         value: "weekdays-distribution",
-        label: "weekdays distribution",
+        label: "Weekdays Distribution",
       },
     ],
     "none",
@@ -922,10 +922,7 @@ export async function appendWeatherOverlay(
     panel.style.setProperty("--weather-panel-scale", "1");
     const panelHeight = panel.scrollHeight;
     const panelWidth = panel.scrollWidth;
-    const availableWidth = Math.max(
-      0,
-      window.innerWidth - edgeInset * 2,
-    );
+    const availableWidth = Math.max(0, window.innerWidth - edgeInset * 2);
     const heightScale =
       panelHeight > 0 ? availableOverlayHeight / panelHeight : 1;
     const widthScale = panelWidth > 0 ? availableWidth / panelWidth : 1;
@@ -1216,13 +1213,9 @@ export async function appendWeatherOverlay(
         ...datum,
         delayAddedMin: datum.delayAdded / 60,
         incomingAvgDelayMin:
-          datum.incomingAvgDelay === null
-            ? null
-            : datum.incomingAvgDelay / 60,
+          datum.incomingAvgDelay === null ? null : datum.incomingAvgDelay / 60,
         outgoingAvgDelayMin:
-          datum.outgoingAvgDelay === null
-            ? null
-            : datum.outgoingAvgDelay / 60,
+          datum.outgoingAvgDelay === null ? null : datum.outgoingAvgDelay / 60,
       }))
       .filter((datum) => Number.isFinite(datum.delayAddedMin))
       .sort((a, b) => d3.ascending(a.delayAddedMin, b.delayAddedMin));
@@ -1289,11 +1282,7 @@ export async function appendWeatherOverlay(
             : 0;
         const delayMin = trip.avg_delay / 60;
 
-        if (
-          count <= 0 ||
-          !Number.isFinite(delayMin) ||
-          delayMin < 0
-        ) {
+        if (count <= 0 || !Number.isFinite(delayMin) || delayMin < 0) {
           return;
         }
 
@@ -1334,18 +1323,17 @@ export async function appendWeatherOverlay(
         d3.ascending(a.delayMin, b.delayMin),
       );
       const totalCount = d3.sum(sortedSamples, (sample) => sample.count);
-      const maxDelayMin = d3.max(sortedSamples, (sample) => sample.delayMin) ?? 0;
+      const maxDelayMin =
+        d3.max(sortedSamples, (sample) => sample.delayMin) ?? 0;
       const binCount = Math.max(
         1,
         Math.ceil(maxDelayMin / delayDurationBinSizeMin),
       );
-      const bins = d3
-        .range(binCount)
-        .map((index) => ({
-          min: index * delayDurationBinSizeMin,
-          max: (index + 1) * delayDurationBinSizeMin,
-          count: 0,
-        }));
+      const bins = d3.range(binCount).map((index) => ({
+        min: index * delayDurationBinSizeMin,
+        max: (index + 1) * delayDurationBinSizeMin,
+        count: 0,
+      }));
 
       sortedSamples.forEach((sample) => {
         const binIndex = Math.min(
@@ -1364,7 +1352,7 @@ export async function appendWeatherOverlay(
         })),
         totalCount,
       };
-  };
+    };
 
   const getWeekdayDistributionData = (): WeekdayDistributionDatum[] => {
     const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
@@ -1625,7 +1613,9 @@ export async function appendWeatherOverlay(
     const containerSelection = d3.select(scatterContainer);
 
     containerSelection
-      .selectAll<SVGCircleElement, WeatherImpactDatum>("circle.weather-impact-point")
+      .selectAll<SVGCircleElement, WeatherImpactDatum>(
+        "circle.weather-impact-point",
+      )
       .classed(
         "is-highlighted",
         (datum) => datum.station.eva === highlightedImpactStationEva,
@@ -1659,10 +1649,7 @@ export async function appendWeatherOverlay(
       visualizationLayoutWidth(scatterContainer, 520),
     );
     const availableHeight = panelAvailableVisualizationHeight(260, 520);
-    const height = Math.max(
-      260,
-      Math.min(availableHeight, 440),
-    );
+    const height = Math.max(260, Math.min(availableHeight, 440));
     scatterContainer.style.height = `${height}px`;
 
     if (data.length === 0) {
@@ -2000,10 +1987,7 @@ export async function appendWeatherOverlay(
   };
 
   const drawDelayDurationDistribution = () => {
-    scatterContainer.setAttribute(
-      "aria-label",
-      "Delay duration distribution",
-    );
+    scatterContainer.setAttribute("aria-label", "Delay duration distribution");
     const data = getDelayDurationDistributionData();
     scatterContainer.replaceChildren();
 
@@ -2018,8 +2002,7 @@ export async function appendWeatherOverlay(
     if (!data || data.bins.length === 0 || data.totalCount <= 0) {
       const empty = document.createElement("div");
       empty.className = "weather-impact-empty";
-      empty.textContent =
-        "No delay duration data for the current selection.";
+      empty.textContent = "No delay duration data for the current selection.";
       scatterContainer.append(empty);
       return;
     }
@@ -2032,10 +2015,7 @@ export async function appendWeatherOverlay(
     const innerHeight = Math.max(1, height - margin.top - margin.bottom);
     const xMax = data.bins.at(-1)?.max ?? delayDurationBinSizeMin;
     const yMax = d3.max(data.bins, (bin) => bin.count) ?? 1;
-    const xScale = d3
-      .scaleLinear()
-      .domain([0, xMax])
-      .range([0, innerWidth]);
+    const xScale = d3.scaleLinear().domain([0, xMax]).range([0, innerWidth]);
     const yScale = d3
       .scaleLinear()
       .domain([0, yMax])
@@ -2210,8 +2190,7 @@ export async function appendWeatherOverlay(
     if (totalDelayCount <= 0) {
       const empty = document.createElement("div");
       empty.className = "weather-impact-empty";
-      empty.textContent =
-        "No weekday delay data for the current selection.";
+      empty.textContent = "No weekday delay data for the current selection.";
       scatterContainer.append(empty);
       return;
     }
@@ -2389,7 +2368,9 @@ export async function appendWeatherOverlay(
       .attr("class", "weather-weekday-line is-delay")
       .attr("d", delayLine);
 
-    const pointGroups = chart.append("g").attr("class", "weather-weekday-points");
+    const pointGroups = chart
+      .append("g")
+      .attr("class", "weather-weekday-points");
 
     pointGroups
       .selectAll<SVGCircleElement, WeekdayDistributionDatum>("circle.count")
@@ -2748,10 +2729,7 @@ export async function appendWeatherOverlay(
       leftAxesG,
       ticksSnow,
       yScaleSnow,
-      -(
-        TIMELINE_AXIS_PLOT_GAP +
-        TIMELINE_AXIS_COLUMN_STEP * 2
-      ),
+      -(TIMELINE_AXIS_PLOT_GAP + TIMELINE_AXIS_COLUMN_STEP * 2),
       "cm",
       WEATHER_TIMELINE_COLORS.snow_depth,
       formatVal,
