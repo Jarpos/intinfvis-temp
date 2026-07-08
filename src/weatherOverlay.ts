@@ -1059,7 +1059,7 @@ export async function appendWeatherOverlay(
     weightedDelay: number;
   };
 
-  const delayDurationBinSizeMin = 5;
+  const delayDurationBinSizeMin = 1;
   const delayDurationPercentiles = [
     { label: "P25", percentile: 0.25 },
     { label: "P50", percentile: 0.5 },
@@ -2126,6 +2126,7 @@ export async function appendWeatherOverlay(
       .data(data.bins.filter((bin) => bin.count > 0))
       .join("rect")
       .attr("class", "weather-delay-duration-bar")
+      .style("fill", WEATHER_TIMELINE_COLORS.avgDelay)
       .attr("x", (bin) => xScale(bin.min))
       .attr("y", (bin) => yScale(bin.count))
       .attr("width", (bin) =>
