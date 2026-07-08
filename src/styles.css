@@ -472,11 +472,11 @@
     }
 
     .weather-weekday-line.is-count {
-        stroke: #3b82f6;
+        stroke: #818cf8;
     }
 
     .weather-weekday-line.is-delay {
-        stroke: #f97316;
+        stroke: #c084fc;
     }
 
     .weather-weekday-point {
@@ -487,11 +487,11 @@
     }
 
     .weather-weekday-point.is-count {
-        fill: #3b82f6;
+        fill: #818cf8;
     }
 
     .weather-weekday-point.is-delay {
-        fill: #f97316;
+        fill: #c084fc;
     }
 
     .weather-weekday-point.is-highlighted {
@@ -506,11 +506,11 @@
     }
 
     .weather-weekday-count-label {
-        fill: #93c5fd;
+        fill: #818cf8;
     }
 
     .weather-weekday-delay-label {
-        fill: #fdba74;
+        fill: #c084fc;
     }
 
     .weather-weekday-legend text {
