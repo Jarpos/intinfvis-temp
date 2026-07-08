@@ -983,6 +983,7 @@ export async function appendWeatherOverlay(
   const timelineClipId = "weather-timeline-clip";
   let visibleTimelineDomain: TimeDomain | null = null;
   let timelineZoomTransform = d3.zoomIdentity;
+  const impactZoomTransforms = new Map<WeatherImpactMode, d3.ZoomTransform>();
 
   const updateLegendHTML = (container: HTMLDivElement) => {
     container.innerHTML = `
@@ -1094,6 +1095,72 @@ export async function appendWeatherOverlay(
     const rectWidth = container.getBoundingClientRect().width;
 
     return Math.max(1, container.clientWidth || rectWidth || fallback);
+  };
+
+  const appendImpactClipPath = (
+    svgElement: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+    clipId: string,
+    innerWidth: number,
+    innerHeight: number,
+  ) => {
+    svgElement
+      .append("defs")
+      .append("clipPath")
+      .attr("id", clipId)
+      .append("rect")
+      .attr("width", innerWidth)
+      .attr("height", innerHeight);
+  };
+
+  const appendImpactZoomSurface = (
+    chart: d3.Selection<SVGGElement, unknown, null, undefined>,
+    innerWidth: number,
+    innerHeight: number,
+  ) =>
+    chart
+      .append("rect")
+      .attr("class", "weather-chart-zoom-capture weather-impact-zoom-surface")
+      .attr("width", innerWidth)
+      .attr("height", innerHeight)
+      .attr("fill", "transparent")
+      .attr("pointer-events", "all");
+
+  const addImpactChartZoom = (
+    chart: d3.Selection<SVGGElement, unknown, null, undefined>,
+    zoomSurface: d3.Selection<SVGRectElement, unknown, null, undefined>,
+    mode: WeatherImpactMode,
+    innerWidth: number,
+    innerHeight: number,
+    maxScale: number,
+    renderZoomedChart: (transform: d3.ZoomTransform) => void,
+  ) => {
+    const storedTransform = impactZoomTransforms.get(mode) ?? d3.zoomIdentity;
+    const initialTransform =
+      storedTransform.k <= maxScale ? storedTransform : d3.zoomIdentity;
+    const zoomBehavior = d3
+      .zoom<SVGGElement, unknown>()
+      .extent([
+        [0, 0],
+        [innerWidth, innerHeight],
+      ])
+      .translateExtent([
+        [0, 0],
+        [innerWidth, innerHeight],
+      ])
+      .scaleExtent([1, Math.max(1, maxScale)])
+      .on("start", () => {
+        zoomSurface.classed("is-panning", true);
+        tooltip.style("display", "none");
+      })
+      .on("zoom", (event) => {
+        impactZoomTransforms.set(mode, event.transform);
+        renderZoomedChart(event.transform);
+      })
+      .on("end", () => {
+        zoomSurface.classed("is-panning", false);
+      });
+
+    chart.call(zoomBehavior).call(zoomBehavior.transform, initialTransform);
   };
 
   const stationWeatherValue = (
@@ -1678,11 +1745,12 @@ export async function appendWeatherOverlay(
 
     const yMax = d3.max(data, (d) => d.avgDelayMin) ?? 1;
     const delayCountMax = d3.max(data, (d) => d.delayCount) ?? 1;
-    const xScale = d3
+    const baseXScale = d3
       .scaleLinear()
       .domain([xMin, xMax])
       .nice(6)
       .range([0, innerWidth]);
+    let xScale = baseXScale.copy();
     const yScale = d3
       .scaleLinear()
       .domain([0, yMax])
@@ -1702,9 +1770,18 @@ export async function appendWeatherOverlay(
       .attr("viewBox", `0 0 ${width} ${height}`)
       .style("display", "block");
 
+    const clipId = "weather-impact-scatter-clip";
+    appendImpactClipPath(svgElement, clipId, innerWidth, innerHeight);
+
     const chart = svgElement
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const zoomSurface = appendImpactZoomSurface(
+      chart,
+      innerWidth,
+      innerHeight,
+    );
 
     chart
       .append("g")
@@ -1718,7 +1795,7 @@ export async function appendWeatherOverlay(
       )
       .call((axis) => axis.select(".domain").remove());
 
-    chart
+    const xAxisG = chart
       .append("g")
       .attr("class", "weather-impact-axis")
       .attr("transform", `translate(0, ${innerHeight})`)
@@ -1765,9 +1842,12 @@ export async function appendWeatherOverlay(
         .text("point = station, size = delay count");
     }
 
-    chart
+    const pointsG = chart
       .append("g")
       .attr("class", "weather-impact-points")
+      .attr("clip-path", `url(#${clipId})`);
+
+    const points = pointsG
       .selectAll<SVGCircleElement, WeatherImpactDatum>("circle")
       .data(data, (d) => `${d.station.eva}`)
       .join("circle")
@@ -1792,6 +1872,23 @@ export async function appendWeatherOverlay(
         options.onStationHoverChange?.(null);
         tooltip.style("display", "none");
       });
+
+    const renderZoomedChart = (transform: d3.ZoomTransform) => {
+      xScale = transform.rescaleX(baseXScale);
+
+      xAxisG.call(d3.axisBottom(xScale).ticks(isCompact ? 4 : 6));
+      points.attr("cx", (d) => xScale(d.weatherValue));
+    };
+
+    addImpactChartZoom(
+      chart,
+      zoomSurface,
+      "weather-impact",
+      innerWidth,
+      innerHeight,
+      Math.max(1, Math.min(28, data.length)),
+      renderZoomedChart,
+    );
   };
 
   const drawWorstBestStations = () => {
@@ -1843,17 +1940,18 @@ export async function appendWeatherOverlay(
     const innerWidth = Math.max(1, width - margin.left - margin.right);
     const innerHeight = Math.max(1, height - margin.top - margin.bottom);
 
-    const xScale = d3
+    const baseXScale = d3
       .scaleLinear()
       .domain([xMin, xMax])
       .nice(isCompact ? 4 : 6)
       .range([0, innerWidth]);
+    let xScale = baseXScale.copy();
     const yScale = d3
       .scaleBand<string>()
       .domain(data.map((d) => `${d.station.eva}`))
       .range([0, innerHeight])
       .padding(0.18);
-    const zeroX = xScale(0);
+    let zeroX = xScale(0);
 
     const svgElement = d3
       .select(scatterContainer)
@@ -1864,16 +1962,25 @@ export async function appendWeatherOverlay(
       .attr("viewBox", `0 0 ${width} ${height}`)
       .style("display", "block");
 
+    const clipId = "weather-station-delay-clip";
+    appendImpactClipPath(svgElement, clipId, innerWidth, innerHeight);
+
     const chart = svgElement
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const zoomSurface = appendImpactZoomSurface(
+      chart,
+      innerWidth,
+      innerHeight,
+    );
 
     const xAxis = d3
       .axisTop(xScale)
       .ticks(isCompact ? 4 : 6)
       .tickFormat((value) => formatSignedMinutes(Number(value)));
 
-    chart
+    const gridG = chart
       .append("g")
       .attr("class", "weather-impact-grid weather-station-delay-grid")
       .call(
@@ -1885,12 +1992,12 @@ export async function appendWeatherOverlay(
       )
       .call((axis) => axis.select(".domain").remove());
 
-    chart
+    const xAxisG = chart
       .append("g")
       .attr("class", "weather-impact-axis weather-station-delay-axis")
       .call(xAxis);
 
-    chart
+    const zeroLine = chart
       .append("line")
       .attr("class", "weather-station-delay-zero")
       .attr("x1", zeroX)
@@ -1921,9 +2028,12 @@ export async function appendWeatherOverlay(
       .attr("text-anchor", "middle")
       .text("Delay added (min)");
 
-    const rows = chart
+    const rowsG = chart
       .append("g")
       .attr("class", "weather-station-delay-rows")
+      .attr("clip-path", `url(#${clipId})`);
+
+    const rows = rowsG
       .selectAll<SVGGElement, StationDelayAddedDatum>("g")
       .data(data, (d) => `${d.station.eva}`)
       .join("g")
@@ -1950,7 +2060,7 @@ export async function appendWeatherOverlay(
         tooltip.style("display", "none");
       });
 
-    rows
+    const bars = rows
       .append("rect")
       .attr("class", (d) =>
         d.delayAddedMin < 0
@@ -1963,7 +2073,7 @@ export async function appendWeatherOverlay(
       .attr("height", yScale.bandwidth())
       .attr("rx", 2);
 
-    rows
+    const stationLabels = rows
       .append("text")
       .attr("class", "weather-station-delay-station-label")
       .attr("x", (d) => (d.delayAddedMin < 0 ? zeroX + 9 : zeroX - 9))
@@ -1972,7 +2082,7 @@ export async function appendWeatherOverlay(
       .attr("text-anchor", (d) => (d.delayAddedMin < 0 ? "start" : "end"))
       .text((d) => d.station.name);
 
-    rows
+    const valueLabels = rows
       .append("text")
       .attr("class", "weather-station-delay-value-label")
       .attr("x", (d) =>
@@ -1984,6 +2094,51 @@ export async function appendWeatherOverlay(
       .attr("dy", "0.35em")
       .attr("text-anchor", (d) => (d.delayAddedMin < 0 ? "end" : "start"))
       .text((d) => formatSignedMinutes(d.delayAddedMin));
+
+    const renderZoomedChart = (transform: d3.ZoomTransform) => {
+      xScale = transform.rescaleX(baseXScale);
+      zeroX = xScale(0);
+
+      const nextAxis = d3
+        .axisTop(xScale)
+        .ticks(isCompact ? 4 : 6)
+        .tickFormat((value) => formatSignedMinutes(Number(value)));
+
+      gridG
+        .call(
+          d3
+            .axisTop(xScale)
+            .ticks(isCompact ? 4 : 6)
+            .tickSize(-innerHeight)
+            .tickFormat(() => ""),
+        )
+        .call((axis) => axis.select(".domain").remove());
+      xAxisG.call(nextAxis);
+      zeroLine.attr("x1", zeroX).attr("x2", zeroX);
+      bars
+        .attr("x", (d) => Math.min(zeroX, xScale(d.delayAddedMin)))
+        .attr("width", (d) => Math.abs(xScale(d.delayAddedMin) - zeroX));
+      stationLabels
+        .attr("x", (d) => (d.delayAddedMin < 0 ? zeroX + 9 : zeroX - 9))
+        .attr("text-anchor", (d) =>
+          d.delayAddedMin < 0 ? "start" : "end",
+        );
+      valueLabels.attr("x", (d) =>
+        d.delayAddedMin < 0
+          ? xScale(d.delayAddedMin) - 7
+          : xScale(d.delayAddedMin) + 7,
+      );
+    };
+
+    addImpactChartZoom(
+      chart,
+      zoomSurface,
+      "worst-best-stations",
+      innerWidth,
+      innerHeight,
+      Math.max(1, Math.min(24, data.length)),
+      renderZoomedChart,
+    );
   };
 
   const drawDelayDurationDistribution = () => {
@@ -2015,7 +2170,11 @@ export async function appendWeatherOverlay(
     const innerHeight = Math.max(1, height - margin.top - margin.bottom);
     const xMax = data.bins.at(-1)?.max ?? delayDurationBinSizeMin;
     const yMax = d3.max(data.bins, (bin) => bin.count) ?? 1;
-    const xScale = d3.scaleLinear().domain([0, xMax]).range([0, innerWidth]);
+    const baseXScale = d3
+      .scaleLinear()
+      .domain([0, xMax])
+      .range([0, innerWidth]);
+    let xScale = baseXScale.copy();
     const yScale = d3
       .scaleLinear()
       .domain([0, yMax])
@@ -2031,9 +2190,18 @@ export async function appendWeatherOverlay(
       .attr("viewBox", `0 0 ${width} ${height}`)
       .style("display", "block");
 
+    const clipId = "weather-delay-duration-clip";
+    appendImpactClipPath(svgElement, clipId, innerWidth, innerHeight);
+
     const chart = svgElement
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const zoomSurface = appendImpactZoomSurface(
+      chart,
+      innerWidth,
+      innerHeight,
+    );
 
     chart
       .append("g")
@@ -2047,7 +2215,7 @@ export async function appendWeatherOverlay(
       )
       .call((axis) => axis.select(".domain").remove());
 
-    chart
+    const xAxisG = chart
       .append("g")
       .attr("class", "weather-impact-axis")
       .attr("transform", `translate(0, ${innerHeight})`)
@@ -2099,9 +2267,10 @@ export async function appendWeatherOverlay(
       .attr("text-anchor", "middle")
       .text("Section count");
 
-    chart
+    const bars = chart
       .append("g")
       .attr("class", "weather-delay-duration-bars")
+      .attr("clip-path", `url(#${clipId})`)
       .selectAll<SVGRectElement, DelayDurationBin>("rect")
       .data(data.bins.filter((bin) => bin.count > 0))
       .join("rect")
@@ -2149,6 +2318,7 @@ export async function appendWeatherOverlay(
     const percentileGroups = chart
       .append("g")
       .attr("class", "weather-delay-duration-percentiles")
+      .attr("clip-path", `url(#${clipId})`)
       .selectAll<SVGGElement, (typeof percentileLabels)[number]>("g")
       .data(percentileLabels)
       .join("g")
@@ -2167,6 +2337,31 @@ export async function appendWeatherOverlay(
       .attr("x", 4)
       .attr("y", (percentile) => percentile.y)
       .text((percentile) => percentile.label);
+
+    const renderZoomedChart = (transform: d3.ZoomTransform) => {
+      xScale = transform.rescaleX(baseXScale);
+
+      xAxisG.call(d3.axisBottom(xScale).ticks(isCompact ? 4 : 6));
+      bars
+        .attr("x", (bin) => xScale(bin.min))
+        .attr("width", (bin) =>
+          Math.max(1, xScale(bin.max) - xScale(bin.min) - 1),
+        );
+      percentileGroups.attr(
+        "transform",
+        (percentile) => `translate(${xScale(percentile.value)}, 0)`,
+      );
+    };
+
+    addImpactChartZoom(
+      chart,
+      zoomSurface,
+      "delay-duration-distribution",
+      innerWidth,
+      innerHeight,
+      Math.max(1, Math.min(40, data.bins.length)),
+      renderZoomedChart,
+    );
   };
 
   const drawWeekdayDistribution = () => {
@@ -2203,11 +2398,11 @@ export async function appendWeatherOverlay(
     const innerHeight = Math.max(1, height - margin.top - margin.bottom);
     const countMax = d3.max(data, (datum) => datum.avgDelayCount) ?? 1;
     const delayMax = d3.max(data, (datum) => datum.avgDelayMin ?? 0) ?? 1;
-    const xScale = d3
-      .scalePoint<string>()
-      .domain(data.map((datum) => datum.label))
-      .range([0, innerWidth])
-      .padding(0.45);
+    const baseXScale = d3
+      .scaleLinear()
+      .domain([-0.45, Math.max(1, data.length - 1) + 0.45])
+      .range([0, innerWidth]);
+    let xScale = baseXScale.copy();
     const yCountScale = d3
       .scaleLinear()
       .domain([0, countMax])
@@ -2219,7 +2414,7 @@ export async function appendWeatherOverlay(
       .nice(isCompact ? 4 : 5)
       .range([innerHeight, 0]);
     const xForDatum = (datum: WeekdayDistributionDatum) =>
-      xScale(datum.label) ?? 0;
+      xScale(datum.index);
 
     const countLine = d3
       .line<WeekdayDistributionDatum>()
@@ -2240,9 +2435,31 @@ export async function appendWeatherOverlay(
       .attr("viewBox", `0 0 ${width} ${height}`)
       .style("display", "block");
 
+    const clipId = "weather-weekday-distribution-clip";
+    appendImpactClipPath(svgElement, clipId, innerWidth, innerHeight);
+
     const chart = svgElement
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
+
+    const zoomSurface = appendImpactZoomSurface(
+      chart,
+      innerWidth,
+      innerHeight,
+    );
+
+    const visibleWeekdayTicks = () =>
+      data
+        .filter((datum) => {
+          const x = xScale(datum.index);
+          return x >= 0 && x <= innerWidth;
+        })
+        .map((datum) => datum.index);
+
+    const xAxis = d3
+      .axisBottom<number>(xScale)
+      .tickValues(visibleWeekdayTicks())
+      .tickFormat((value) => data[Number(value)]?.label ?? "");
 
     chart
       .append("g")
@@ -2256,11 +2473,11 @@ export async function appendWeatherOverlay(
       )
       .call((axis) => axis.select(".domain").remove());
 
-    chart
+    const xAxisG = chart
       .append("g")
       .attr("class", "weather-impact-axis")
       .attr("transform", `translate(0, ${innerHeight})`)
-      .call(d3.axisBottom(xScale));
+      .call(xAxis);
 
     chart
       .append("g")
@@ -2356,23 +2573,26 @@ export async function appendWeatherOverlay(
       .attr("dy", "0.35em")
       .text("avg delay");
 
-    chart
+    const countPath = chart
       .append("path")
       .datum(data)
       .attr("class", "weather-weekday-line is-count")
+      .attr("clip-path", `url(#${clipId})`)
       .attr("d", countLine);
 
-    chart
+    const delayPath = chart
       .append("path")
       .datum(data)
       .attr("class", "weather-weekday-line is-delay")
+      .attr("clip-path", `url(#${clipId})`)
       .attr("d", delayLine);
 
     const pointGroups = chart
       .append("g")
-      .attr("class", "weather-weekday-points");
+      .attr("class", "weather-weekday-points")
+      .attr("clip-path", `url(#${clipId})`);
 
-    pointGroups
+    const countPoints = pointGroups
       .selectAll<SVGCircleElement, WeekdayDistributionDatum>("circle.count")
       .data(data)
       .join("circle")
@@ -2384,7 +2604,7 @@ export async function appendWeatherOverlay(
       .attr("cy", (datum) => yCountScale(datum.avgDelayCount))
       .attr("r", 4);
 
-    pointGroups
+    const delayPoints = pointGroups
       .selectAll<SVGCircleElement, WeekdayDistributionDatum>("circle.delay")
       .data(data.filter((datum) => datum.avgDelayMin !== null))
       .join("circle")
@@ -2398,9 +2618,10 @@ export async function appendWeatherOverlay(
 
     const hoverWidth = Math.max(28, innerWidth / data.length);
 
-    chart
+    const hoverTargets = chart
       .append("g")
       .attr("class", "weather-weekday-hover-targets")
+      .attr("clip-path", `url(#${clipId})`)
       .selectAll<SVGRectElement, WeekdayDistributionDatum>("rect")
       .data(data)
       .join("rect")
@@ -2424,6 +2645,32 @@ export async function appendWeatherOverlay(
           .classed("is-highlighted", false);
         tooltip.style("display", "none");
       });
+
+    const renderZoomedChart = (transform: d3.ZoomTransform) => {
+      xScale = transform.rescaleX(baseXScale);
+
+      const nextXAxis = d3
+        .axisBottom<number>(xScale)
+        .tickValues(visibleWeekdayTicks())
+        .tickFormat((value) => data[Number(value)]?.label ?? "");
+
+      xAxisG.call(nextXAxis);
+      countPath.attr("d", countLine);
+      delayPath.attr("d", delayLine);
+      countPoints.attr("cx", xForDatum);
+      delayPoints.attr("cx", xForDatum);
+      hoverTargets.attr("x", (datum) => xForDatum(datum) - hoverWidth / 2);
+    };
+
+    addImpactChartZoom(
+      chart,
+      zoomSurface,
+      "weekdays-distribution",
+      innerWidth,
+      innerHeight,
+      Math.max(1, data.length),
+      renderZoomedChart,
+    );
   };
 
   const drawImpactVisualization = () => {
