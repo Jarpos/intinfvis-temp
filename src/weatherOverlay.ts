@@ -1102,14 +1102,17 @@ export async function appendWeatherOverlay(
     clipId: string,
     innerWidth: number,
     innerHeight: number,
+    padding = 0,
   ) => {
     svgElement
       .append("defs")
       .append("clipPath")
       .attr("id", clipId)
       .append("rect")
-      .attr("width", innerWidth)
-      .attr("height", innerHeight);
+      .attr("x", -padding)
+      .attr("y", -padding)
+      .attr("width", innerWidth + padding * 2)
+      .attr("height", innerHeight + padding * 2);
   };
 
   const appendImpactZoomSurface = (
@@ -1743,23 +1746,27 @@ export async function appendWeatherOverlay(
       xMax += 1;
     }
 
+    const xDomainPadding = Math.max(0.05, (xMax - xMin) * 0.04);
     const yMax = d3.max(data, (d) => d.avgDelayMin) ?? 1;
+    const yDomainPadding = Math.max(0.5, yMax * 0.08);
     const delayCountMax = d3.max(data, (d) => d.delayCount) ?? 1;
+    const pointRadiusRange: [number, number] = isCompact ? [3, 12] : [4, 18];
+    const maxPointRadius = pointRadiusRange[1];
     const baseXScale = d3
       .scaleLinear()
-      .domain([xMin, xMax])
+      .domain([xMin - xDomainPadding, xMax + xDomainPadding])
       .nice(6)
       .range([0, innerWidth]);
     let xScale = baseXScale.copy();
     const yScale = d3
       .scaleLinear()
-      .domain([0, yMax])
+      .domain([0, yMax + yDomainPadding])
       .nice(6)
       .range([innerHeight, 0]);
     const radiusScale = d3
       .scaleSqrt()
       .domain([1, delayCountMax])
-      .range(isCompact ? [3, 12] : [4, 18]);
+      .range(pointRadiusRange);
 
     const svgElement = d3
       .select(scatterContainer)
@@ -1771,7 +1778,13 @@ export async function appendWeatherOverlay(
       .style("display", "block");
 
     const clipId = "weather-impact-scatter-clip";
-    appendImpactClipPath(svgElement, clipId, innerWidth, innerHeight);
+    appendImpactClipPath(
+      svgElement,
+      clipId,
+      innerWidth,
+      innerHeight,
+      maxPointRadius + 2,
+    );
 
     const chart = svgElement
       .append("g")
