@@ -1896,6 +1896,10 @@ export async function appendWeatherOverlay(
       "aria-label",
       "Worst and best stations by delay added",
     );
+    scatterContainer.style.setProperty(
+      "--weather-station-delay-best-color",
+      WEATHER_TIMELINE_COLORS.delayCount,
+    );
     const data = getStationDelayAddedData();
     scatterContainer.replaceChildren();
 

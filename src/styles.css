@@ -401,7 +401,7 @@
     }
 
     .weather-station-delay-bar.is-best {
-        fill: #60a5fa;
+        fill: var(--weather-station-delay-best-color, #60a5fa);
     }
 
     .weather-station-delay-bar.is-worst {
