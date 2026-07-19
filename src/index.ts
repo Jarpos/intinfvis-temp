@@ -15,7 +15,10 @@ import {
 import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
-import { appendWeatherOverlay } from "./weatherOverlay";
+import {
+  appendWeatherOverlay,
+  WEATHER_OVERLAY_RENDER_EVENT,
+} from "./weatherOverlay";
 import {
   DEFAULT_DATE_RANGE,
   SELECTED_DATE_CHANGE_EVENT,
@@ -409,6 +412,10 @@ stateHoverAreas
 const trainLinesLayer = g.append("g");
 trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
+
+document.addEventListener(WEATHER_OVERLAY_RENDER_EVENT, () => {
+  scheduleTrainNetworkRender();
+});
 
 function featuresForState(state: string) {
   return geojson.features.filter((feature) => stateName(feature) === state);
@@ -897,7 +904,12 @@ function renderTrainNetwork() {
     visibleStations,
   );
 
-  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)
+  appendTrainStrecken(
+    trainLinesLayer,
+    displayConnections,
+    visibleStationNames,
+    weatherOverlay.colorAtPoint,
+  )
     .on("mouseenter", function (event, d) {
       d3.select(this).classed("is-section-delay-hovered", true).raise();
       showSectionDelayTooltip(event, d);

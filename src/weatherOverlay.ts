@@ -47,6 +47,7 @@ type WeatherOverlay = {
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
   currentCells: TemperatureCell[];
+  currentCellColors: Map<string, string>;
   chartContainer?: HTMLDivElement;
   legendContainer?: HTMLDivElement;
   impactPanel: HTMLDivElement;
@@ -73,6 +74,7 @@ const WEATHER_TIMELINE_COLORS: Record<
 };
 
 export type WeatherOverlayController = {
+  colorAtPoint: (point: [number, number]) => string | null;
   showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
   hideTooltip: () => void;
   setHoveredStation: (stationEva: number | null) => void;
@@ -82,6 +84,8 @@ export type WeatherOverlayController = {
     dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
   ) => void;
 };
+
+export const WEATHER_OVERLAY_RENDER_EVENT = "weather-overlay-render";
 
 type WeatherOverlayOptions = {
   beginLoadingTask?: (message: string) => () => void;
@@ -571,6 +575,12 @@ function renderHour(
   const cells = buildRenderableCells(dataset, index, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
+  overlay.currentCellColors = new Map(
+    cells.map((cell) => [
+      `${cell.x},${cell.y}`,
+      temperatureColor(cell.temperature),
+    ]),
+  );
   overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -594,6 +604,8 @@ function renderHour(
     .attr("data-temperature", (d) => d.rawValue.toFixed(1))
     .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
     .attr("opacity", 1);
+
+  document.dispatchEvent(new CustomEvent(WEATHER_OVERLAY_RENDER_EVENT));
 }
 
 function dispatchSelectedDateChange(
@@ -3521,6 +3533,7 @@ export async function appendWeatherOverlay(
   const overlay: WeatherOverlay = {
     layer,
     currentCells: [],
+    currentCellColors: new Map(),
     impactPanel,
     impactVisualizationContainer: scatterContainer,
     ...controls,
@@ -3746,6 +3759,18 @@ export async function appendWeatherOverlay(
   }
 
   return {
+    colorAtPoint: ([x, y]) => {
+      const cellSize = overlay.currentCells[0]?.size;
+
+      if (!cellSize) {
+        return null;
+      }
+
+      const cellX = Math.floor(x / cellSize) * cellSize;
+      const cellY = Math.floor(y / cellSize) * cellSize;
+
+      return overlay.currentCellColors.get(`${cellX},${cellY}`) ?? null;
+    },
     showTooltipAtPoint: (event, [x, y]) => {
       const cell = overlay.currentCells.find(
         (candidate) =>

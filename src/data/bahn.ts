@@ -119,45 +119,149 @@ export function appendTrainStrecken(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
   connections: Connection[],
   selectedStationNames = new Set(icStations.map((station) => station.name)),
+  weatherColorAtPoint?: (point: [number, number]) => string | null,
 ) {
   const filteredConnections = connections.filter(
     (c) =>
       selectedStationNames.has(c.source.name) &&
       selectedStationNames.has(c.target.name),
   );
-  const maxDelayCount = d3.max(
-    filteredConnections,
-    (connection) => connection.delayCount,
-  ) ?? 0;
+  const maxDelayCount =
+    d3.max(filteredConnections, (connection) => connection.delayCount) ?? 0;
   const lineWidthForDelayCount = d3
     .scaleLinear()
     .domain([0, Math.max(1, maxDelayCount)])
     .range([0.75, 6])
     .clamp(true);
+  const connectionKey = (connection: Connection) =>
+    `${connection.source.eva}-${connection.target.eva}`;
+  const lineColor = (connection: Connection) =>
+    connection.delay >= 300
+      ? "#d73027"
+      : connection.delay >= 120
+        ? "#fc8d59"
+        : connection.delay >= 60
+          ? "#fee08b"
+          : "#1a9850";
+  const colorsAreSimilar = (first: string, second: string) => {
+    const firstLab = d3.lab(first);
+    const secondLab = d3.lab(second);
+    const deltaE = Math.hypot(
+      firstLab.l - secondLab.l,
+      firstLab.a - secondLab.a,
+      firstLab.b - secondLab.b,
+    );
 
-  return g
-    .selectAll<SVGLineElement, Connection>("line.train-delay-line")
-    .data(filteredConnections, (d) => `${d.source.eva}-${d.target.eva}`)
+    return deltaE < 35;
+  };
+  type ConnectionOutlineSegment = {
+    key: string;
+    connection: Connection;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  };
+  const outlineSegmentsForConnection = (
+    connection: Connection,
+  ): ConnectionOutlineSegment[] => {
+    if (!weatherColorAtPoint) {
+      return [];
+    }
+
+    const sourcePoint = projection(connection.source.coords as [number, number]);
+    const targetPoint = projection(connection.target.coords as [number, number]);
+
+    if (!sourcePoint || !targetPoint) {
+      return [];
+    }
+
+    const distance = Math.hypot(
+      targetPoint[0] - sourcePoint[0],
+      targetPoint[1] - sourcePoint[1],
+    );
+    const sampleCount = Math.max(1, Math.ceil(distance / 8));
+
+    const segments: ConnectionOutlineSegment[] = [];
+
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const startProgress = sample / sampleCount;
+      const endProgress = (sample + 1) / sampleCount;
+      const midpointProgress = (startProgress + endProgress) / 2;
+      const weatherColor = weatherColorAtPoint([
+        sourcePoint[0] +
+          (targetPoint[0] - sourcePoint[0]) * midpointProgress,
+        sourcePoint[1] +
+          (targetPoint[1] - sourcePoint[1]) * midpointProgress,
+      ]);
+
+      if (
+        weatherColor &&
+        colorsAreSimilar(lineColor(connection), weatherColor)
+      ) {
+        segments.push({
+          key: `${connectionKey(connection)}-${sample}`,
+          connection,
+          x1:
+            sourcePoint[0] +
+            (targetPoint[0] - sourcePoint[0]) * startProgress,
+          y1:
+            sourcePoint[1] +
+            (targetPoint[1] - sourcePoint[1]) * startProgress,
+          x2:
+            sourcePoint[0] +
+            (targetPoint[0] - sourcePoint[0]) * endProgress,
+          y2:
+            sourcePoint[1] +
+            (targetPoint[1] - sourcePoint[1]) * endProgress,
+        });
+      }
+    }
+
+    return segments;
+  };
+  const outlineSegments = filteredConnections.flatMap(
+    outlineSegmentsForConnection,
+  );
+
+  g.selectAll<SVGLineElement, ConnectionOutlineSegment>(
+    "line.train-delay-line-outline",
+  )
+    .data(outlineSegments, (segment) => segment.key)
     .join("line")
-    .attr("class", "train-delay-line")
-    .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
-    .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
-    .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
-    .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
-    // .attr("stroke", COLORS.TRAINS.LINES)
-    .attr("stroke", (d) =>
-      d.delay >= 300
-        ? "#d73027"
-        : d.delay >= 120
-          ? "#fc8d59"
-          : d.delay >= 60
-            ? "#fee08b"
-            : "#1a9850",
+    .attr("class", "train-delay-line-outline")
+    .attr("x1", (segment) => segment.x1)
+    .attr("y1", (segment) => segment.y1)
+    .attr("x2", (segment) => segment.x2)
+    .attr("y2", (segment) => segment.y2)
+    .attr("stroke", "#000")
+    .attr(
+      "stroke-width",
+      (segment) =>
+        lineWidthForDelayCount(segment.connection.delayCount) + 1,
     )
-    .attr("stroke-width", (d) => lineWidthForDelayCount(d.delayCount))
     .attr("stroke-opacity", 0.9)
-    .attr("pointer-events", "stroke")
-    .attr("vector-effect", "non-scaling-stroke");
+    .attr("pointer-events", "none")
+    .attr("vector-effect", "non-scaling-stroke")
+    .lower();
+
+  return (
+    g
+      .selectAll<SVGLineElement, Connection>("line.train-delay-line")
+      .data(filteredConnections, connectionKey)
+      .join("line")
+      .attr("class", "train-delay-line")
+      .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
+      .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
+      .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
+      .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
+      // .attr("stroke", COLORS.TRAINS.LINES)
+    .attr("stroke", lineColor)
+      .attr("stroke-width", (d) => lineWidthForDelayCount(d.delayCount))
+      .attr("stroke-opacity", 0.9)
+      .attr("pointer-events", "stroke")
+      .attr("vector-effect", "non-scaling-stroke")
+  );
 }
 
 export function appendTrainStations(
@@ -365,7 +469,12 @@ export function aggregateDelayConnections(trips: DelayTrip[]) {
     const target = stationByEva.get(trip.to_stop_id);
     const delayCount = delayCountForTrip(trip);
 
-    if (!source || !target || !Number.isFinite(trip.avg_delay) || delayCount <= 0) {
+    if (
+      !source ||
+      !target ||
+      !Number.isFinite(trip.avg_delay) ||
+      delayCount <= 0
+    ) {
       return;
     }
 
@@ -540,8 +649,7 @@ export function buildStationDelayAddedStats(
     result.set(eva, {
       station: stats.station,
       delayAdded,
-      entriesCount:
-        stats.incoming.entriesCount + stats.outgoing.entriesCount,
+      entriesCount: stats.incoming.entriesCount + stats.outgoing.entriesCount,
       incomingEntriesCount: stats.incoming.entriesCount,
       outgoingEntriesCount: stats.outgoing.entriesCount,
       incomingAvgDelay,
@@ -601,9 +709,7 @@ export async function loadDelayTripsPerDay(
       const icUrl = `/data/bahn/csv/delays/ic/${date}.csv`;
       const nonIcUrls =
         regionNames.length > 0
-          ? (
-              await loadDelaySummaryRows(date)
-            )
+          ? (await loadDelaySummaryRows(date))
               .filter((summary) => regionNameSet.has(summary.region_name))
               .map(
                 (summary) =>
