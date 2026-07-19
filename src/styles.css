@@ -596,7 +596,6 @@
     .train-delay-line.is-section-delay-hovered {
         filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.85));
         stroke-opacity: 1;
-        stroke-width: 3px;
     }
 
     .train-station-icon.is-weather-impact-highlighted {

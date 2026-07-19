@@ -125,6 +125,15 @@ export function appendTrainStrecken(
       selectedStationNames.has(c.source.name) &&
       selectedStationNames.has(c.target.name),
   );
+  const maxDelayCount = d3.max(
+    filteredConnections,
+    (connection) => connection.delayCount,
+  ) ?? 0;
+  const lineWidthForDelayCount = d3
+    .scaleLinear()
+    .domain([0, Math.max(1, maxDelayCount)])
+    .range([0.75, 6])
+    .clamp(true);
 
   return g
     .selectAll<SVGLineElement, Connection>("line.train-delay-line")
@@ -145,7 +154,7 @@ export function appendTrainStrecken(
             ? "#fee08b"
             : "#1a9850",
     )
-    .attr("stroke-width", 0.9)
+    .attr("stroke-width", (d) => lineWidthForDelayCount(d.delayCount))
     .attr("stroke-opacity", 0.9)
     .attr("pointer-events", "stroke")
     .attr("vector-effect", "non-scaling-stroke");
