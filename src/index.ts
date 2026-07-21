@@ -35,6 +35,7 @@ let currentZoomTransform = d3.zoomIdentity;
 let focusedState: string | null = null;
 const focusedStateListeners = new Set<(state: string | null) => void>();
 let isClickFocusing = false;
+let isLayoutRecentering = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
@@ -564,8 +565,46 @@ function refitMap(transition = false) {
   }
 }
 
+function recenterMapPreservingZoom(transition = false) {
+  if (!zoom) {
+    return;
+  }
+
+  const target = focusedState
+    ? ({
+        type: "FeatureCollection",
+        features: featuresForState(focusedState),
+      } as GeoJSON.FeatureCollection)
+    : geojson;
+  const [[x0, y0], [x1, y1]] = geoPath.bounds(target);
+  const focusRect = getMapFocusRect();
+  const scale = currentZoomTransform.k;
+  const nextTransform = d3.zoomIdentity
+    .translate(
+      focusRect.centerX - (scale * (x0 + x1)) / 2,
+      focusRect.centerY - (scale * (y0 + y1)) / 2,
+    )
+    .scale(scale);
+
+  map_svg.interrupt();
+  isLayoutRecentering = true;
+
+  if (transition) {
+    map_svg
+      .transition()
+      .duration(350)
+      .call(zoom.transform, nextTransform)
+      .on("end interrupt", () => {
+        isLayoutRecentering = false;
+      });
+  } else {
+    map_svg.call(zoom.transform, nextTransform);
+    isLayoutRecentering = false;
+  }
+}
+
 document.addEventListener("weather-impact-layout-change", () => {
-  window.requestAnimationFrame(() => refitMap(true));
+  window.requestAnimationFrame(() => recenterMapPreservingZoom(true));
 });
 
 function stateAtViewportCenter() {
@@ -1465,7 +1504,7 @@ zoom = d3
     currentZoomTransform = event.transform;
     g.attr("transform", currentZoomTransform.toString());
 
-    if (isClickFocusing) {
+    if (isClickFocusing || isLayoutRecentering) {
       updateMapVisibility();
       scheduleTrainNetworkRender();
       return;
