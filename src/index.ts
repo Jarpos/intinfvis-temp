@@ -1425,7 +1425,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
 
-      if (source === "weather-timeline") {
+      if (source === "weather-timeline" || source === "holiday-calendar") {
         if (nextSelectedDate) {
           selectedDate = startOfDay(nextSelectedDate);
         }

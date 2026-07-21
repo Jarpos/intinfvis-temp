@@ -38,6 +38,12 @@ import type {
   Station,
   StationDelayAddedStats,
 } from "./data/bahn";
+import {
+  buildHolidayCalendarCells,
+  holidayDateKey,
+  loadHolidayCalendarData,
+} from "./data/holidays";
+import type { HolidayCalendarData } from "./data/holidays";
 
 type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
@@ -60,7 +66,8 @@ type WeatherImpactMode =
   | "weather-impact"
   | "worst-best-stations"
   | "delay-duration-distribution"
-  | "weekdays-distribution";
+  | "weekdays-distribution"
+  | "holiday-impact";
 
 const WEATHER_TIMELINE_COLORS: Record<
   WeatherVariableKey | "delayCount" | "avgDelay",
@@ -241,6 +248,7 @@ function createLegend() {
         value: "weekdays-distribution",
         label: "Weekdays Distribution",
       },
+      { value: "holiday-impact", label: "Holiday Impact" },
     ],
     "none",
   );
@@ -323,6 +331,7 @@ function createLegend() {
     impactModeDropdown: impactModeDropdown.dropdown,
     directionDropdown: directionDropdown.dropdown,
     aggregateCheckbox,
+    impactControls,
     impactPanel,
     scatterContainer,
   };
@@ -898,6 +907,7 @@ export async function appendWeatherOverlay(
     impactModeDropdown,
     directionDropdown,
     aggregateCheckbox,
+    impactControls,
     impactPanel,
     scatterContainer,
   } = createLegend();
@@ -988,6 +998,12 @@ export async function appendWeatherOverlay(
     to: DEFAULT_DATE_RANGE.to,
     selected: DEFAULT_DATE_RANGE.from,
   };
+  let holidayData: HolidayCalendarData | null = null;
+  let holidayDataKey: string | null = null;
+  let holidayDataLoading = false;
+  let holidayDataRequestId = 0;
+  let holidayDisplayMonth: Date | null = null;
+  let holidayDisplaySelectedKey: string | null = null;
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex: number | null = 0;
   let committedRenderHourIndex = 0;
@@ -1541,7 +1557,9 @@ export async function appendWeatherOverlay(
   const setImpactMode = (mode: WeatherImpactMode) => {
     impactMode = mode;
     const isActive = impactMode !== "none";
+    const isHolidayImpact = impactMode === "holiday-impact";
     impactPanel.hidden = !isActive;
+    impactControls.hidden = isHolidayImpact;
     directionDropdown.hidden =
       impactMode !== "weather-impact" &&
       impactMode !== "delay-duration-distribution" &&
@@ -1562,11 +1580,16 @@ export async function appendWeatherOverlay(
       "is-weekday-distribution",
       impactMode === "weekdays-distribution",
     );
+    scatterContainer.classList.toggle(
+      "is-holiday-calendar",
+      isHolidayImpact,
+    );
     document.body.classList.toggle("weather-impact-active", isActive);
     document.body.classList.toggle(
       "weather-best-worst-active",
       impactMode === "worst-best-stations",
     );
+    document.body.classList.toggle("weather-holiday-active", isHolidayImpact);
     options.onStationHoverChange?.(null);
     drawImpactVisualization();
     window.requestAnimationFrame(() => {
@@ -2706,7 +2729,226 @@ export async function appendWeatherOverlay(
     );
   };
 
+  const requestHolidayData = () => {
+    const nextKey = currentFocusedState ?? "national";
+
+    if (holidayDataKey === nextKey) {
+      return;
+    }
+
+    holidayDataKey = nextKey;
+    holidayData = null;
+    holidayDataLoading = true;
+    const requestId = ++holidayDataRequestId;
+
+    void loadHolidayCalendarData(currentFocusedState).then((data) => {
+      if (requestId !== holidayDataRequestId || holidayDataKey !== nextKey) {
+        return;
+      }
+
+      holidayData = data;
+      holidayDataLoading = false;
+
+      if (impactMode === "holiday-impact") {
+        drawImpactVisualization();
+      }
+    });
+  };
+
+  const drawHolidayCalendar = () => {
+    requestHolidayData();
+    scatterContainer.replaceChildren();
+    scatterContainer.setAttribute("aria-label", "Holiday Impact calendar");
+    scatterContainer.style.height = "306px";
+
+    const calendar = document.createElement("section");
+    calendar.className = "holiday-calendar";
+
+    const selectedDate = activeRange.selected ?? activeRange.from;
+    const selectedKey = holidayDateKey(selectedDate);
+    const firstRangeMonth = new Date(
+      activeRange.from.getFullYear(),
+      activeRange.from.getMonth(),
+      1,
+    );
+    const lastRangeMonth = new Date(
+      activeRange.to.getFullYear(),
+      activeRange.to.getMonth(),
+      1,
+    );
+
+    if (!holidayDisplayMonth || holidayDisplaySelectedKey !== selectedKey) {
+      holidayDisplayMonth = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        1,
+      );
+      holidayDisplaySelectedKey = selectedKey;
+    }
+
+    if (holidayDisplayMonth < firstRangeMonth) {
+      holidayDisplayMonth = firstRangeMonth;
+    } else if (holidayDisplayMonth > lastRangeMonth) {
+      holidayDisplayMonth = lastRangeMonth;
+    }
+
+    const displayedMonth = holidayDisplayMonth;
+    const hasMultipleMonths =
+      firstRangeMonth.getTime() !== lastRangeMonth.getTime();
+
+    const heading = document.createElement("h2");
+    heading.className = "holiday-calendar-heading";
+    const previousMonth = document.createElement("button");
+    previousMonth.type = "button";
+    previousMonth.className = "holiday-calendar-navigation is-previous";
+    previousMonth.setAttribute("aria-label", "Previous month");
+    previousMonth.hidden = !hasMultipleMonths;
+    previousMonth.disabled = displayedMonth <= firstRangeMonth;
+
+    const month = document.createElement("span");
+    month.className = "holiday-calendar-month";
+    month.textContent = new Intl.DateTimeFormat("en-US", {
+      month: "long",
+    }).format(displayedMonth);
+
+    const nextMonth = document.createElement("button");
+    nextMonth.type = "button";
+    nextMonth.className = "holiday-calendar-navigation is-next";
+    nextMonth.setAttribute("aria-label", "Next month");
+    nextMonth.hidden = !hasMultipleMonths;
+    nextMonth.disabled = displayedMonth >= lastRangeMonth;
+
+    const navigateMonth = (offset: number) => {
+      holidayDisplayMonth = new Date(
+        displayedMonth.getFullYear(),
+        displayedMonth.getMonth() + offset,
+        1,
+      );
+      drawImpactVisualization();
+    };
+    previousMonth.addEventListener("click", () => navigateMonth(-1));
+    nextMonth.addEventListener("click", () => navigateMonth(1));
+    heading.append(previousMonth, month, nextMonth);
+
+    const weekdays = document.createElement("div");
+    weekdays.className = "holiday-calendar-weekdays";
+    weekdays.setAttribute("aria-hidden", "true");
+    ["M", "T", "W", "T", "F", "S", "S"].forEach((label, index) => {
+      const weekday = document.createElement("span");
+      weekday.textContent = label;
+      weekdays.append(weekday);
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "holiday-calendar-grid";
+    grid.setAttribute("role", "grid");
+    grid.setAttribute("aria-label", heading.textContent ?? "Calendar month");
+
+    const cells = buildHolidayCalendarCells(
+      displayedMonth,
+      {
+        from: activeRange.from,
+        to: activeRange.to,
+        selected: selectedDate,
+      },
+      holidayData,
+    );
+
+    cells.forEach((cell) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "holiday-calendar-day";
+      button.textContent = `${cell.dayNumber}`;
+      button.disabled = !cell.isInRange;
+      button.classList.toggle("is-outside-month", !cell.isCurrentMonth);
+      button.classList.toggle("is-outside-range", !cell.isInRange);
+      button.classList.toggle("is-selected", cell.isSelected);
+      button.classList.toggle(
+        "has-public-holiday",
+        cell.publicHolidayNames.length > 0,
+      );
+      button.classList.toggle(
+        "has-school-holiday",
+        cell.schoolHolidayNames.length > 0,
+      );
+
+      const dateLabel = new Intl.DateTimeFormat("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(cell.date);
+      const details = [
+        ...cell.publicHolidayNames.map((name) => `Public holiday: ${name}`),
+        ...cell.schoolHolidayNames.map((name) => `School holiday: ${name}`),
+      ];
+      const accessibleLabel = [dateLabel, ...details].join(". ");
+      button.setAttribute("aria-label", accessibleLabel);
+      button.setAttribute("role", "gridcell");
+      if (cell.isSelected) {
+        button.setAttribute("aria-current", "date");
+      }
+      if (details.length > 0) {
+        const tooltipId = `holiday-tooltip-${cell.dateKey}`;
+        const holidayTooltip = document.createElement("span");
+        holidayTooltip.id = tooltipId;
+        holidayTooltip.className = "weather-holiday-tooltip";
+        holidayTooltip.setAttribute("role", "tooltip");
+
+        const dateLine = document.createElement("span");
+        dateLine.className = "weather-holiday-tooltip-date";
+        dateLine.textContent = dateLabel;
+        holidayTooltip.append(dateLine);
+
+        details.forEach((detail) => {
+          const line = document.createElement("span");
+          line.textContent = detail;
+          holidayTooltip.append(line);
+        });
+
+        button.setAttribute("aria-describedby", tooltipId);
+        button.append(holidayTooltip);
+      }
+
+      button.addEventListener("click", () => {
+        document.dispatchEvent(
+          new CustomEvent<SelectedDateChangeDetail>(
+            SELECTED_DATE_CHANGE_EVENT,
+            {
+              detail: {
+                from: toDateInputValue(activeRange.from),
+                to: toDateInputValue(activeRange.to),
+                selected: holidayDateKey(cell.date),
+                source: "holiday-calendar",
+              },
+            },
+          ),
+        );
+      });
+      grid.append(button);
+    });
+
+    calendar.append(heading, weekdays, grid);
+
+    if (holidayDataLoading || (holidayData?.errors.length ?? 0) > 0) {
+      const status = document.createElement("p");
+      status.className = "holiday-calendar-status";
+      status.setAttribute("role", "status");
+      status.textContent = holidayDataLoading
+        ? "Loading holiday data…"
+        : "Some holiday data is unavailable.";
+      calendar.append(status);
+    }
+
+    scatterContainer.append(calendar);
+  };
+
   const drawImpactVisualization = () => {
+    if (impactMode === "holiday-impact") {
+      drawHolidayCalendar();
+      return;
+    }
+
     if (impactMode === "weather-impact") {
       drawImpactScatter();
       return;
@@ -3746,6 +3988,18 @@ export async function appendWeatherOverlay(
     }
 
     activeRange = nextRange;
+
+    if (source === "holiday-calendar" && activeDataset) {
+      const nextIndex =
+        matchingCalendarDateIndex(activeDataset.hours, nextRange.selected) ??
+        closestHourIndex(
+          activeDataset.hours,
+          selectedDateTargetTime(nextRange.selected),
+        );
+      commitHour(nextIndex);
+      return;
+    }
+
     void loadAndRender(nextRange).catch((error) => {
       if (
         sameCalendarDate(activeRange.from, nextRange.from) &&
