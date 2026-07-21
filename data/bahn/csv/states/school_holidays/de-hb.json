@@ -1,0 +1,47 @@
+[
+  {
+    "startDate": "2022-12-23",
+    "endDate": "2023-01-06",
+    "name": "Christmas Holidays"
+  },
+  {
+    "startDate": "2023-01-30",
+    "endDate": "2023-01-31",
+    "name": "Mid-Year Holidays"
+  },
+  {
+    "startDate": "2023-03-27",
+    "endDate": "2023-04-11",
+    "name": "Easter Holidays"
+  },
+  {
+    "startDate": "2023-05-19",
+    "endDate": "2023-05-19",
+    "name": "Day after Ascension"
+  },
+  {
+    "startDate": "2023-05-30",
+    "endDate": "2023-05-30",
+    "name": "Pentecost Holiday"
+  },
+  {
+    "startDate": "2023-07-06",
+    "endDate": "2023-08-16",
+    "name": "Summer Holidays"
+  },
+  {
+    "startDate": "2023-10-02",
+    "endDate": "2023-10-02",
+    "name": "Day before the 3 October"
+  },
+  {
+    "startDate": "2023-10-16",
+    "endDate": "2023-10-30",
+    "name": "Autumn Holidays"
+  },
+  {
+    "startDate": "2023-12-23",
+    "endDate": "2024-01-05",
+    "name": "Christmas Holidays"
+  }
+]

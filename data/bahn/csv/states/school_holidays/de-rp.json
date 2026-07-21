@@ -1,0 +1,32 @@
+[
+  {
+    "startDate": "2022-12-23",
+    "endDate": "2023-01-02",
+    "name": "Christmas Holidays"
+  },
+  {
+    "startDate": "2023-04-03",
+    "endDate": "2023-04-06",
+    "name": "Easter Holidays"
+  },
+  {
+    "startDate": "2023-05-30",
+    "endDate": "2023-06-07",
+    "name": "Pentecost Holidays"
+  },
+  {
+    "startDate": "2023-07-24",
+    "endDate": "2023-09-01",
+    "name": "Summer Holidays"
+  },
+  {
+    "startDate": "2023-10-16",
+    "endDate": "2023-10-27",
+    "name": "Autumn Holidays"
+  },
+  {
+    "startDate": "2023-12-27",
+    "endDate": "2024-01-05",
+    "name": "Christmas Holidays"
+  }
+]
