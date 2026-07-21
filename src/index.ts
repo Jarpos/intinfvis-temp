@@ -97,11 +97,21 @@ function regionKey(state?: string | null, region?: string | null) {
   return state && region ? `${state}|${region}` : null;
 }
 
-function stateName(feature: GeoJSON.Feature) {
+function optionalStateName(feature: GeoJSON.Feature) {
   return (
     (feature.properties as { NAME_1?: string; name?: string } | null)?.NAME_1 ??
-    (feature.properties as { NAME_1?: string; name?: string } | null)?.name ??
-    "Unknown"
+    (feature.properties as { NAME_1?: string; name?: string } | null)?.name
+  );
+}
+
+function stateName(feature: GeoJSON.Feature) {
+  return optionalStateName(feature) ?? "Unknown";
+}
+
+function regionName(feature: GeoJSON.Feature) {
+  return (
+    (feature.properties as { NAME_2?: string } | null)?.NAME_2 ??
+    optionalStateName(feature)
   );
 }
 
@@ -386,7 +396,8 @@ stateHoverAreas
   })
   .on("mousemove", (event, d) => {
     const point = d3.pointer(event, g.node()) as [number, number];
-    weatherOverlay.showTooltipAtPoint(event, point);
+    const geographicName = focusedState ? regionName(d) : stateName(d);
+    weatherOverlay.showTooltipAtPoint(event, point, geographicName);
   })
   .on("click", (event, d) => {
     event.stopPropagation();

@@ -75,7 +75,11 @@ const WEATHER_TIMELINE_COLORS: Record<
 
 export type WeatherOverlayController = {
   colorAtPoint: (point: [number, number]) => string | null;
-  showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
+  showTooltipAtPoint: (
+    event: MouseEvent,
+    point: [number, number],
+    geographicName?: string,
+  ) => boolean;
   hideTooltip: () => void;
   setHoveredStation: (stationEva: number | null) => void;
   updateData: (
@@ -3771,7 +3775,7 @@ export async function appendWeatherOverlay(
 
       return overlay.currentCellColors.get(`${cellX},${cellY}`) ?? null;
     },
-    showTooltipAtPoint: (event, [x, y]) => {
+    showTooltipAtPoint: (event, [x, y], geographicName) => {
       const cell = overlay.currentCells.find(
         (candidate) =>
           x >= candidate.x &&
@@ -3790,12 +3794,24 @@ export async function appendWeatherOverlay(
       }
 
       const config = WEATHER_VARIABLES[activeVariableKey];
+      const weatherValue = document.createElement("div");
+      weatherValue.textContent = `${cell.rawValue.toFixed(1)} ${config.unit}`;
+      const tooltipLines: Node[] = [];
+
+      if (geographicName) {
+        const location = document.createElement("div");
+        location.style.fontWeight = "600";
+        location.textContent = geographicName;
+        tooltipLines.push(location);
+      }
+
+      tooltipLines.push(weatherValue);
+      tooltip.node()?.replaceChildren(...tooltipLines);
       tooltip
         .style("display", "block")
         .style("left", `${event.pageX + 10}px`)
         .style("top", `${event.pageY + 10}px`)
-        .style("background", COLORS.TOOLTIP.BACKGROUND)
-        .text(`${cell.rawValue.toFixed(1)} ${config.unit}`);
+        .style("background", COLORS.TOOLTIP.BACKGROUND);
 
       return true;
     },
