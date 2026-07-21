@@ -1089,6 +1089,22 @@ export async function appendWeatherOverlay(
     weightedDelay: number;
   };
 
+  type DailyDelayDatum = {
+    date: string;
+    weekdayIndex: number;
+    delayCount: number;
+    avgDelayMin: number | null;
+    weightedDelay: number;
+  };
+
+  type CalendarDelayComparison = {
+    actual: DailyDelayDatum;
+    weekdayAverage: WeekdayDistributionDatum;
+    normalizedDelayCount: number | null;
+    normalizedDelayTime: number | null;
+    normalizedAverage: number | null;
+  };
+
   const delayDurationBinSizeMin = 1;
   const delayDurationPercentiles = [
     { label: "P25", percentile: 0.25 },
@@ -1456,47 +1472,35 @@ export async function appendWeatherOverlay(
       };
     };
 
-  const getWeekdayDistributionData = (): WeekdayDistributionDatum[] => {
-    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
-      (label, index) => ({
-        index,
-        label,
-        dateCount: 0,
-        delayCount: 0,
-        avgDelayCount: 0,
-        avgDelayMin: null,
-        weightedDelay: 0,
-      }),
-    );
+  const getDailyDelayData = (): Map<string, DailyDelayDatum> => {
+    const dailyData = new Map<string, DailyDelayDatum>();
 
     if (
       !activeDataset ||
       !currentDailyDelayTrips ||
       currentVisibleStations.length === 0
     ) {
-      return buckets;
+      return dailyData;
     }
 
-    const dailyDelayTrips = currentDailyDelayTrips;
     const visibleStationsByEva = new Set(
       currentVisibleStations.map((station) => station.eva),
     );
-    const selectedDates = Object.keys(dailyDelayTrips);
 
-    selectedDates.forEach((date) => {
+    Object.entries(currentDailyDelayTrips).forEach(([date, trips]) => {
       const weekdayIndex = weekdayIndexForDateKey(date);
-      const trips = dailyDelayTrips[date] ?? [];
 
       if (weekdayIndex === null) {
         return;
       }
 
-      const bucket = buckets[weekdayIndex];
-      bucket.dateCount += 1;
-
-      if (trips.length === 0) {
-        return;
-      }
+      const datum: DailyDelayDatum = {
+        date,
+        weekdayIndex,
+        delayCount: 0,
+        avgDelayMin: null,
+        weightedDelay: 0,
+      };
 
       trips.forEach((trip) => {
         const fromVisible = visibleStationsByEva.has(trip.from_stop_id);
@@ -1512,8 +1516,8 @@ export async function appendWeatherOverlay(
         }
 
         const addDelay = () => {
-          bucket.delayCount += count;
-          bucket.weightedDelay += trip.avg_delay * count;
+          datum.delayCount += count;
+          datum.weightedDelay += trip.avg_delay * count;
         };
 
         if (impactDirection === "both") {
@@ -1540,6 +1544,37 @@ export async function appendWeatherOverlay(
           addDelay();
         }
       });
+
+      datum.avgDelayMin =
+        datum.delayCount > 0
+          ? datum.weightedDelay / datum.delayCount / 60
+          : null;
+      dailyData.set(date, datum);
+    });
+
+    return dailyData;
+  };
+
+  const getWeekdayDistributionData = (
+    dailyData = getDailyDelayData(),
+  ): WeekdayDistributionDatum[] => {
+    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
+      (label, index) => ({
+        index,
+        label,
+        dateCount: 0,
+        delayCount: 0,
+        avgDelayCount: 0,
+        avgDelayMin: null,
+        weightedDelay: 0,
+      }),
+    );
+
+    dailyData.forEach((datum) => {
+      const bucket = buckets[datum.weekdayIndex];
+      bucket.dateCount += 1;
+      bucket.delayCount += datum.delayCount;
+      bucket.weightedDelay += datum.weightedDelay;
     });
 
     buckets.forEach((bucket) => {
@@ -2854,6 +2889,47 @@ export async function appendWeatherOverlay(
       holidayData,
     );
 
+    const dailyDelayData = getDailyDelayData();
+    const weekdayDistribution = getWeekdayDistributionData(dailyDelayData);
+    const delayComparisons = new Map<string, CalendarDelayComparison>();
+
+    dailyDelayData.forEach((actual, date) => {
+      const weekdayAverage = weekdayDistribution[actual.weekdayIndex];
+      const normalizedDelayCount =
+        weekdayAverage.avgDelayCount > 0
+          ? actual.delayCount / weekdayAverage.avgDelayCount
+          : null;
+      const normalizedDelayTime =
+        actual.avgDelayMin !== null &&
+        weekdayAverage.avgDelayMin !== null &&
+        weekdayAverage.avgDelayMin > 0
+          ? actual.avgDelayMin / weekdayAverage.avgDelayMin
+          : null;
+      const normalizedValues = [
+        normalizedDelayCount,
+        normalizedDelayTime,
+      ].filter((value): value is number => value !== null);
+
+      delayComparisons.set(date, {
+        actual,
+        weekdayAverage,
+        normalizedDelayCount,
+        normalizedDelayTime,
+        normalizedAverage:
+          normalizedValues.length > 0 ? d3.mean(normalizedValues)! : null,
+      });
+    });
+
+    const maxAboveAverage =
+      d3.max(delayComparisons.values(), (comparison) =>
+        comparison.normalizedAverage === null
+          ? 0
+          : Math.max(0, comparison.normalizedAverage - 1),
+      ) ?? 0;
+    const delayAnomalyColor = d3.interpolateHcl("#fed7aa", "#dc2626");
+    const formatNormalizedValue = (value: number | null) =>
+      value === null ? "N/A" : `${value.toFixed(2)}×`;
+
     cells.forEach((cell) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -2872,6 +2948,27 @@ export async function appendWeatherOverlay(
         cell.schoolHolidayNames.length > 0,
       );
 
+      const delayComparison = delayComparisons.get(cell.dateKey);
+      const aboveAverage =
+        delayComparison?.normalizedAverage === null ||
+        delayComparison?.normalizedAverage === undefined
+          ? 0
+          : Math.max(0, delayComparison.normalizedAverage - 1);
+
+      if (cell.isInRange && delayComparison && aboveAverage > 0) {
+        const colorPosition =
+          maxAboveAverage > 0 ? aboveAverage / maxAboveAverage : 0;
+        button.classList.add("has-delay-anomaly");
+        button.style.setProperty(
+          "--delay-anomaly-color",
+          delayAnomalyColor(colorPosition),
+        );
+        button.style.setProperty(
+          "--delay-anomaly-text-color",
+          colorPosition >= 0.5 ? "#fff7ed" : "#431407",
+        );
+      }
+
       const dateLabel = new Intl.DateTimeFormat("en-GB", {
         weekday: "long",
         day: "numeric",
@@ -2882,6 +2979,32 @@ export async function appendWeatherOverlay(
         ...cell.publicHolidayNames.map((name) => `Public holiday: ${name}`),
         ...cell.schoolHolidayNames.map((name) => `School holiday: ${name}`),
       ];
+      if (delayComparison) {
+        details.push(
+          `Delays: ${delayComparison.actual.delayCount.toLocaleString(
+            "de-DE",
+          )} (weekday avg ${delayComparison.weekdayAverage.avgDelayCount.toLocaleString(
+            "de-DE",
+            { maximumFractionDigits: 1 },
+          )}; normalized ${formatNormalizedValue(
+            delayComparison.normalizedDelayCount,
+          )})`,
+          `Avg delay: ${
+            delayComparison.actual.avgDelayMin === null
+              ? "N/A"
+              : `${delayComparison.actual.avgDelayMin.toFixed(1)} min`
+          } (weekday avg ${
+            delayComparison.weekdayAverage.avgDelayMin === null
+              ? "N/A"
+              : `${delayComparison.weekdayAverage.avgDelayMin.toFixed(1)} min`
+          }; normalized ${formatNormalizedValue(
+            delayComparison.normalizedDelayTime,
+          )})`,
+          `Normalized average: ${formatNormalizedValue(
+            delayComparison.normalizedAverage,
+          )}`,
+        );
+      }
       const accessibleLabel = [dateLabel, ...details].join(". ");
       button.setAttribute("aria-label", accessibleLabel);
       button.setAttribute("role", "gridcell");
