@@ -2794,7 +2794,7 @@ export async function appendWeatherOverlay(
     requestHolidayData();
     scatterContainer.replaceChildren();
     scatterContainer.setAttribute("aria-label", "Holiday Impact calendar");
-    scatterContainer.style.height = "306px";
+    scatterContainer.style.height = "356px";
 
     const calendar = document.createElement("section");
     calendar.className = "holiday-calendar";
@@ -2920,13 +2920,13 @@ export async function appendWeatherOverlay(
       });
     });
 
-    const maxAboveAverage =
-      d3.max(delayComparisons.values(), (comparison) =>
-        comparison.normalizedAverage === null
-          ? 0
-          : Math.max(0, comparison.normalizedAverage - 1),
-      ) ?? 0;
     const delayAnomalyColor = d3.interpolateHcl("#fed7aa", "#dc2626");
+    const delayAnomalyFill = (position: number) => {
+      const clampedPosition = Math.max(0, Math.min(1, position));
+      const color = d3.rgb(delayAnomalyColor(clampedPosition));
+      color.opacity = 0.4 + clampedPosition * 0.6;
+      return color.formatRgb();
+    };
     const formatNormalizedValue = (value: number | null) =>
       value === null ? "N/A" : `${value.toFixed(2)}×`;
 
@@ -2956,12 +2956,11 @@ export async function appendWeatherOverlay(
           : Math.max(0, delayComparison.normalizedAverage - 1);
 
       if (cell.isInRange && delayComparison && aboveAverage > 0) {
-        const colorPosition =
-          maxAboveAverage > 0 ? aboveAverage / maxAboveAverage : 0;
+        const colorPosition = Math.min(1, aboveAverage);
         button.classList.add("has-delay-anomaly");
         button.style.setProperty(
           "--delay-anomaly-color",
-          delayAnomalyColor(colorPosition),
+          delayAnomalyFill(colorPosition),
         );
         button.style.setProperty(
           "--delay-anomaly-text-color",
@@ -3051,7 +3050,68 @@ export async function appendWeatherOverlay(
       grid.append(button);
     });
 
-    calendar.append(heading, weekdays, grid);
+    const delayLegend = document.createElement("div");
+    delayLegend.className = "holiday-calendar-delay-legend";
+    delayLegend.setAttribute(
+      "aria-label",
+      "Combined normalized average: unfilled at or below weekday average, light orange just above one times average, and opaque red at two times average or more",
+    );
+
+    const legendTitle = document.createElement("span");
+    legendTitle.className = "holiday-calendar-delay-legend-title";
+    legendTitle.textContent = "Combined normalized average";
+
+    const legendScale = document.createElement("span");
+    legendScale.className = "holiday-calendar-delay-legend-scale";
+
+    const legendRamp = document.createElement("span");
+    legendRamp.className = "holiday-calendar-delay-legend-ramp";
+    legendRamp.style.background = `linear-gradient(to right, ${d3
+      .range(11)
+      .map((index) => {
+        const position = index / 10;
+        return `${delayAnomalyFill(position)} ${position * 100}%`;
+      })
+      .join(", ")})`;
+
+    const legendTicks = document.createElement("span");
+    legendTicks.className = "holiday-calendar-delay-legend-ticks";
+    ["just >1×", "1.5×", "≥2×"].forEach((label) => {
+      const tick = document.createElement("span");
+      tick.textContent = label;
+      legendTicks.append(tick);
+    });
+    legendScale.append(legendRamp, legendTicks);
+    delayLegend.append(legendTitle, legendScale);
+
+    const holidayLegend = document.createElement("div");
+    holidayLegend.className = "holiday-calendar-holiday-legend";
+    holidayLegend.setAttribute(
+      "aria-label",
+      "Holiday borders: yellow for public holidays, green for school holidays, and split yellow and green for both",
+    );
+
+    const holidayLegendTitle = document.createElement("span");
+    holidayLegendTitle.textContent = "Holiday borders";
+    holidayLegend.append(holidayLegendTitle);
+
+    [
+      { label: "Public", modifier: "is-public" },
+      { label: "School", modifier: "is-school" },
+      { label: "Both", modifier: "is-both" },
+    ].forEach(({ label, modifier }) => {
+      const item = document.createElement("span");
+      item.className = "holiday-calendar-holiday-legend-item";
+      const swatch = document.createElement("span");
+      swatch.className = `holiday-calendar-holiday-legend-swatch ${modifier}`;
+      swatch.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.textContent = label;
+      item.append(swatch, text);
+      holidayLegend.append(item);
+    });
+
+    calendar.append(heading, weekdays, grid, delayLegend, holidayLegend);
 
     if (holidayDataLoading || (holidayData?.errors.length ?? 0) > 0) {
       const status = document.createElement("p");

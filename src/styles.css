@@ -330,7 +330,7 @@
 
     .weather-impact-scatter.is-holiday-calendar {
         width: 100%;
-        height: 306px;
+        height: 356px;
         overflow: hidden;
         border-color: rgba(255, 255, 255, 0.14);
         border-radius: 6px;
@@ -343,7 +343,7 @@
         position: relative;
         box-sizing: border-box;
         width: 100%;
-        height: 306px;
+        height: 356px;
         padding: 8px 20px 10px;
         overflow: hidden;
         background: transparent;
@@ -538,6 +538,84 @@
         color: #a7a7a7;
         font-size: 9px;
         line-height: 1;
+    }
+
+    .holiday-calendar-delay-legend {
+        display: grid;
+        grid-template-columns: max-content minmax(120px, 1fr);
+        align-items: center;
+        gap: 10px;
+        height: 25px;
+        margin-top: 3px;
+        color: rgba(247, 251, 255, 0.82);
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1;
+    }
+
+    .holiday-calendar-delay-legend-scale {
+        display: grid;
+        gap: 2px;
+    }
+
+    .holiday-calendar-delay-legend-ramp {
+        display: block;
+        height: 7px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 999px;
+    }
+
+    .holiday-calendar-delay-legend-ticks {
+        display: flex;
+        justify-content: space-between;
+        color: rgba(247, 251, 255, 0.62);
+        font-size: 9px;
+        font-weight: 550;
+    }
+
+    .holiday-calendar-holiday-legend {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 17px;
+        color: rgba(247, 251, 255, 0.82);
+        font-size: 10px;
+        font-weight: 650;
+        line-height: 1;
+    }
+
+    .holiday-calendar-holiday-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: rgba(247, 251, 255, 0.68);
+        font-weight: 550;
+    }
+
+    .holiday-calendar-holiday-legend-swatch {
+        box-sizing: border-box;
+        width: 15px;
+        height: 10px;
+        border: 2px solid transparent;
+        border-radius: 4px;
+    }
+
+    .holiday-calendar-holiday-legend-swatch.is-public {
+        border-color: var(--holiday-public);
+    }
+
+    .holiday-calendar-holiday-legend-swatch.is-school {
+        border-color: var(--holiday-school);
+    }
+
+    .holiday-calendar-holiday-legend-swatch.is-both {
+        background:
+            linear-gradient(#18221d 0 0) padding-box,
+            linear-gradient(
+                to bottom,
+                var(--holiday-public) 0 50%,
+                var(--holiday-school) 50% 100%
+            ) border-box;
     }
 
     .weather-holiday-tooltip {
