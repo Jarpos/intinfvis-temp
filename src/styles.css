@@ -17,20 +17,90 @@
 
 /* weatherOverlay */
 @layer components {
+    :root {
+        --weather-edge-inset: 16px;
+        --weather-overlay-max-height: calc(100vh - 252px);
+        --weather-panel-scale: 1;
+    }
+
+    #station-filter {
+        align-self: flex-start;
+        height: var(--station-filter-height, calc(100vh - 258px));
+        max-height: var(--station-filter-height, calc(100vh - 258px));
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    #map-panel {
+        position: relative;
+    }
+
+    #weather-impact-pane {
+        display: none;
+        min-width: 0;
+        min-height: 0;
+    }
+
+    #map-viewport {
+        position: absolute;
+        inset: 0;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    #map-viewport > svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .weather-impact-active #map-panel {
+        display: block;
+    }
+
+    .weather-impact-active #weather-impact-pane {
+        display: none;
+    }
+
+    .weather-impact-active #map-viewport {
+        position: absolute;
+        inset: 0;
+    }
+
     .weather-panel {
         position: fixed;
-        left: 16px;
-        top: 16px;
+        left: var(--weather-edge-inset);
+        top: var(--weather-edge-inset);
         z-index: 10;
         display: grid;
         gap: 8px;
         width: min(230px, calc(100vw - 32px));
         color: #f7fbff;
         pointer-events: none;
+        transform: scale(var(--weather-panel-scale));
+        transform-origin: top left;
+    }
+
+    .weather-impact-active .weather-panel {
+        width: min(720px, calc(100vw - (var(--weather-edge-inset) * 2)));
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        pointer-events: auto;
+    }
+
+    .weather-best-worst-active .weather-panel {
+        width: min(620px, calc(100vw - (var(--weather-edge-inset) * 2)));
+        grid-template-rows: auto auto auto;
+    }
+
+    .weather-impact-active .weather-panel > .weather-dropdown-container {
+        width: 230px;
     }
 
     .weather-legend,
-    .weather-timeline {
+    .weather-timeline,
+    .weather-impact-visualization,
+    .weather-impact-scatter {
         background: rgba(18, 28, 24, 0.78);
         border: 1px solid rgba(255, 255, 255, 0.14);
         box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
@@ -177,172 +247,361 @@
         line-height: 1;
     }
 
-    .weather-timeline {
-        position: fixed;
-        right: calc(20rem + 24px);
-        bottom: 18px;
-        left: 24px;
-        z-index: 5;
+    .weather-impact-panel {
         display: grid;
-        gap: 8px;
-        padding: 10px 44px 22px;
-        border-radius: 7px;
-        color: #f7fbff;
+        gap: 10px;
+        min-height: 0;
+        pointer-events: auto;
     }
 
-    .weather-timeline-meta {
+    .weather-impact-panel[hidden] {
+        display: none;
+    }
+
+    .weather-impact-controls {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        min-height: 18px;
-        gap: 16px;
-        color: rgba(247, 251, 255, 0.78);
-        font-size: 12px;
-        font-weight: 700;
-    }
-
-    .weather-status {
-        color: rgba(247, 251, 255, 0.72);
-        font-size: 12px;
-        text-align: left;
-    }
-
-    .weather-slider-wrap {
-        position: relative;
-        display: grid;
-        gap: 0;
-        min-width: 0;
-        height: 74px;
-        padding-top: 24px;
-    }
-
-    .weather-slider {
-        position: relative;
-        z-index: 4;
+        flex-wrap: wrap;
+        gap: 10px;
         width: 100%;
-        height: 20px;
-        margin: 0;
-        appearance: none;
-        -webkit-appearance: none;
-        background: transparent;
+    }
+
+    .weather-impact-direction-dropdown {
+        width: 150px;
+        flex: 0 0 auto;
+    }
+
+    .weather-impact-direction-dropdown[hidden] {
+        display: none;
+    }
+
+    .weather-impact-checkbox {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: 6px;
+        background: rgba(18, 28, 24, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: rgba(247, 251, 255, 0.88);
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
         cursor: pointer;
     }
 
-    .weather-slider::-webkit-slider-runnable-track {
-        height: 20px;
-        background: transparent;
-        border: 0;
+    .weather-impact-checkbox input {
+        width: 15px;
+        height: 15px;
+        accent-color: #3b82f6;
     }
 
-    .weather-slider::-webkit-slider-thumb {
-        appearance: none;
-        -webkit-appearance: none;
-        width: 4px;
-        height: 26px;
-        margin-top: -3px;
-        border: 0;
-        border-radius: 2px;
-        background: #ff7a16;
-        box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
-    }
-
-    .weather-slider::-moz-range-track {
-        height: 20px;
-        background: transparent;
-        border: 0;
-    }
-
-    .weather-slider::-moz-range-thumb {
-        width: 4px;
-        height: 26px;
-        border: 0;
-        border-radius: 2px;
-        background: #ff7a16;
-        box-shadow: 0 0 0 1px rgba(18, 28, 24, 0.6), 0 0 0 3px rgba(255, 122, 22, 0.14);
-    }
-
-    .weather-step-marks {
-        position: relative;
-        height: 46px;
-        margin-top: -7px;
-        color: rgba(247, 251, 255, 0.86);
-        font-size: 11px;
-        border-top: 2px solid rgba(255, 255, 255, 0.74);
-    }
-
-    .weather-hour-tick {
-        position: absolute;
-        top: 0;
-        width: 1px;
-        height: 8px;
-        background: rgba(255, 255, 255, 0.56);
-        transform: translateX(-50%);
-    }
-
-    .weather-hour-tick.is-six-hour {
-        height: 14px;
-        background: rgba(255, 255, 255, 0.78);
-    }
-
-    .weather-hour-tick.is-noon {
-        height: 22px;
-        width: 2px;
-        background: rgba(255, 255, 255, 0.95);
-    }
-
-    .weather-day-label {
-        position: absolute;
-        top: 31px;
-        transform: translateX(-50%);
-        display: grid;
-        gap: 1px;
-        min-width: 78px;
-        max-width: 86px;
+    .weather-impact-scatter {
+        box-sizing: border-box;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        padding: 0;
+        border-radius: 6px;
         color: #f7fbff;
-        font-size: 12px;
-        font-weight: 800;
-        line-height: 1.05;
-        text-align: center;
-        white-space: nowrap;
+        pointer-events: auto;
     }
 
-    .weather-day-label small {
-        color: rgba(247, 251, 255, 0.78);
-        font-size: 10px;
+    .weather-impact-scatter.is-station-delay-chart {
+        height: auto;
+    }
+
+    .weather-impact-scatter.is-delay-duration-distribution {
+        height: auto;
+    }
+
+    .weather-impact-scatter.is-weekday-distribution {
+        height: auto;
+    }
+
+    .weather-impact-svg {
+        overflow: visible;
+    }
+
+    .weather-impact-grid .tick line {
+        stroke: rgba(255, 255, 255, 0.08);
+    }
+
+    .weather-impact-axis path,
+    .weather-impact-axis line {
+        stroke: rgba(255, 255, 255, 0.2);
+    }
+
+    .weather-impact-axis text,
+    .weather-impact-axis-label,
+    .weather-impact-title,
+    .weather-impact-note {
+        fill: rgba(247, 251, 255, 0.78);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .weather-impact-axis text {
+        font-size: 11px;
+    }
+
+    .weather-impact-axis-label {
+        font-size: 12px;
         font-weight: 700;
     }
 
-    .weather-time-bubble {
-        position: absolute;
-        left: clamp(32px, var(--weather-progress, 50%), calc(100% - 32px));
-        top: 0;
-        z-index: 5;
-        min-width: 52px;
-        padding: 4px 8px;
-        border-radius: 5px;
-        background: rgba(18, 28, 24, 0.96);
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        color: #ffffff;
-        font-size: 14px;
+    .weather-impact-title {
+        fill: #ffffff;
+        font-size: 16px;
         font-weight: 800;
-        line-height: 1;
-        text-align: center;
-        transform: translateX(-50%);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.36);
+    }
+
+    .weather-impact-note {
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .weather-impact-point {
+        fill: var(--weather-impact-point-color, #818cf8);
+        fill-opacity: 0.62;
+        stroke: rgba(255, 255, 255, 0.82);
+        stroke-width: 1;
+        cursor: pointer;
+        transition: fill-opacity 0.12s ease, stroke-width 0.12s ease, filter 0.12s ease;
+    }
+
+    .weather-impact-point.is-highlighted {
+        fill-opacity: 0.95;
+        stroke: #fbbf24;
+        stroke-width: 2;
+        filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.75));
+    }
+
+    .weather-station-delay-axis path {
+        display: none;
+    }
+
+    .weather-station-delay-axis .tick line,
+    .weather-station-delay-grid .tick line {
+        stroke: rgba(255, 255, 255, 0.13);
+    }
+
+    .weather-station-delay-zero {
+        stroke: rgba(247, 251, 255, 0.72);
+        stroke-width: 1.2;
+    }
+
+    .weather-station-delay-row {
+        cursor: pointer;
+    }
+
+    .weather-station-delay-bar {
+        fill-opacity: 0.78;
+        transition: fill-opacity 0.12s ease, filter 0.12s ease;
+    }
+
+    .weather-station-delay-bar.is-best {
+        fill: var(--weather-station-delay-best-color, #60a5fa);
+    }
+
+    .weather-station-delay-bar.is-worst {
+        fill: #fb8b61;
+    }
+
+    .weather-station-delay-row.is-highlighted .weather-station-delay-bar {
+        fill-opacity: 1;
+        filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.75));
+    }
+
+    .weather-station-delay-station-label,
+    .weather-station-delay-value-label {
+        fill: rgba(247, 251, 255, 0.88);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 12px;
+        font-weight: 700;
+        paint-order: stroke;
+        stroke: rgba(0, 0, 0, 0.74);
+        stroke-width: 3px;
+        stroke-linejoin: round;
         pointer-events: none;
     }
 
-    .weather-time-bubble::after {
-        content: "";
-        position: absolute;
-        left: 50%;
-        bottom: -6px;
-        width: 0;
-        height: 0;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 6px solid rgba(18, 28, 24, 0.96);
-        transform: translateX(-50%);
+    .weather-station-delay-value-label {
+        fill: #ffffff;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .weather-delay-duration-bar {
+        fill: #4f9ed5;
+        fill-opacity: 0.78;
+        cursor: pointer;
+        transition: fill-opacity 0.12s ease, filter 0.12s ease;
+    }
+
+    .weather-delay-duration-bar.is-highlighted {
+        fill-opacity: 1;
+        filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.62));
+    }
+
+    .weather-delay-duration-percentile-line {
+        stroke: #38bdf8;
+        stroke-width: 1.6;
+        stroke-dasharray: 5 4;
+        opacity: 0.9;
+        pointer-events: none;
+    }
+
+    .weather-delay-duration-percentile-label {
+        fill: rgba(247, 251, 255, 0.92);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 11px;
+        font-weight: 800;
+        paint-order: stroke;
+        pointer-events: none;
+        stroke: rgba(0, 0, 0, 0.76);
+        stroke-linejoin: round;
+        stroke-width: 3px;
+    }
+
+    .weather-weekday-line {
+        fill: none;
+        stroke-width: 2.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        pointer-events: none;
+    }
+
+    .weather-weekday-line.is-count {
+        stroke: #818cf8;
+    }
+
+    .weather-weekday-line.is-delay {
+        stroke: #c084fc;
+    }
+
+    .weather-weekday-point {
+        stroke: rgba(255, 255, 255, 0.86);
+        stroke-width: 1.2;
+        transition: r 0.12s ease, filter 0.12s ease, stroke-width 0.12s ease;
+        pointer-events: none;
+    }
+
+    .weather-weekday-point.is-count {
+        fill: #818cf8;
+    }
+
+    .weather-weekday-point.is-delay {
+        fill: #c084fc;
+    }
+
+    .weather-weekday-point.is-highlighted {
+        r: 6;
+        stroke-width: 2;
+        filter: drop-shadow(0 0 5px rgba(251, 191, 36, 0.65));
+    }
+
+    .weather-weekday-hover-target {
+        fill: transparent;
+        cursor: pointer;
+    }
+
+    .weather-weekday-count-label {
+        fill: #818cf8;
+    }
+
+    .weather-weekday-delay-label {
+        fill: #c084fc;
+    }
+
+    .weather-weekday-legend text {
+        fill: rgba(247, 251, 255, 0.76);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .weather-impact-empty {
+        display: grid;
+        height: 100%;
+        place-items: center;
+        color: rgba(247, 251, 255, 0.62);
+        font-size: 13px;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .weather-timeline {
+        position: fixed;
+        right: var(--weather-edge-inset);
+        bottom: var(--weather-edge-inset);
+        left: var(--weather-edge-inset);
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 24px;
+        border-radius: 7px;
+        color: #f7fbff;
+        height: auto;
+    }
+
+    .weather-timeline-body {
+        display: flex;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .weather-timeline-svg {
+        overflow: visible;
+        user-select: none;
+    }
+
+    .weather-chart-zoom-capture {
+        cursor: grab;
+        touch-action: none;
+    }
+
+    .weather-chart-zoom-capture.is-panning {
+        cursor: grabbing;
+    }
+
+    .weather-timeline .x-axis text {
+        paint-order: stroke;
+        stroke: rgba(0, 0, 0, 0.86);
+        stroke-width: 3px;
+        stroke-linejoin: round;
+    }
+
+    .weather-chart-tooltip {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 6px;
+        padding: 10px 12px;
+        color: #f8fafc;
+        font-size: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .train-delay-line {
+        stroke-linecap: round;
+        transition: stroke-width 0.12s ease, stroke-opacity 0.12s ease, filter 0.12s ease;
+    }
+
+    .train-delay-line.is-section-delay-hovered {
+        filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.85));
+        stroke-opacity: 1;
+        stroke-width: 3px;
+    }
+
+    .train-station-icon.is-weather-impact-highlighted {
+        opacity: 1;
+        filter: brightness(0) saturate(100%) invert(83%) sepia(94%) saturate(1058%) hue-rotate(358deg) brightness(101%) contrast(106%) drop-shadow(0 0 4px rgba(251, 191, 36, 0.9));
     }
 
     .weather-contour {
@@ -355,10 +614,21 @@
     }
 
     @media (max-width: 720px) {
+        :root {
+            --weather-edge-inset: 10px;
+        }
+
+        #station-filter {
+            height: var(--station-filter-height, calc(100vh - 246px));
+            max-height: var(--station-filter-height, calc(100vh - 246px));
+        }
+
         .weather-panel {
-            left: 10px;
-            top: 10px;
             width: 170px;
+        }
+
+        .weather-impact-active .weather-panel {
+            width: calc(100vw - (var(--weather-edge-inset) * 2));
         }
 
         .weather-legend {
@@ -370,14 +640,13 @@
         }
 
         .weather-timeline {
-            left: 10px;
-            right: 10px;
-            bottom: 10px;
             padding: 8px 14px 18px;
         }
 
-        .weather-timeline-meta {
-            font-size: 11px;
+        .weather-impact-direction-dropdown,
+        .weather-impact-checkbox {
+            flex: 1 1 0;
+            min-width: 0;
         }
 
         .weather-day-label {

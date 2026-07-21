@@ -78,10 +78,10 @@ export const WEATHER_VARIABLES: Record<
   snow_depth: {
     key: "snow_depth",
     label: "Snow Depth",
-    unit: "m",
+    unit: "cm",
     min: 0,
-    max: 1,
-    ticks: [1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0],
+    max: 100,
+    ticks: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0],
   },
 };
 
@@ -387,20 +387,18 @@ export async function loadHistoricalTemperatures(
       );
       return { time, label, temperature_2m, precipitation, snow_depth };
     })
-    .filter(
-      (hour) => {
-        const day = startOfDay(hour.time);
+    .filter((hour) => {
+      const day = startOfDay(hour.time);
 
-        return (
-          day >= start &&
-          day <= end &&
-          day <= currentDay &&
-          (hour.temperature_2m.some(Number.isFinite) ||
-            hour.precipitation.some(Number.isFinite) ||
-            hour.snow_depth.some(Number.isFinite))
-        );
-      },
-    );
+      return (
+        day >= start &&
+        day <= end &&
+        day <= currentDay &&
+        (hour.temperature_2m.some(Number.isFinite) ||
+          hour.precipitation.some(Number.isFinite) ||
+          hour.snow_depth.some(Number.isFinite))
+      );
+    });
 
   return {
     points,
@@ -411,36 +409,63 @@ export async function loadHistoricalTemperatures(
   };
 }
 
-function interpolateTemperature(
+export function interpolateWeatherValue(
   x: number,
   y: number,
   projectedPoints: Array<[number, number]>,
-  temperatures: number[],
+  values: number[],
 ) {
   let weightedSum = 0;
   let totalWeight = 0;
 
   projectedPoints.forEach(([pointX, pointY], index) => {
-    const temperature = temperatures[index];
+    const value = values[index];
 
-    if (!Number.isFinite(temperature)) {
+    if (!Number.isFinite(value)) {
       return;
     }
 
     const distanceSquared = (x - pointX) ** 2 + (y - pointY) ** 2;
 
     if (distanceSquared < 1) {
-      weightedSum = temperature;
+      weightedSum = value;
       totalWeight = 1;
       return;
     }
 
     const weight = 1 / distanceSquared;
-    weightedSum += temperature * weight;
+    weightedSum += value * weight;
     totalWeight += weight;
   });
 
   return totalWeight === 0 ? Number.NaN : weightedSum / totalWeight;
+}
+
+export function interpolateWeatherValueAtCoordinate(
+  dataset: WeatherDataset,
+  hour: WeatherHour,
+  variableKey:
+    | "temperature_2m"
+    | "precipitation"
+    | "snow_depth" = "temperature_2m",
+  coordinate: [number, number],
+) {
+  const stationPoint = projection(coordinate);
+
+  if (!stationPoint) {
+    return Number.NaN;
+  }
+
+  const projectedPoints = dataset.points
+    .map((point) => projection([point.longitude, point.latitude]))
+    .filter((point): point is [number, number] => point !== null);
+
+  return interpolateWeatherValue(
+    stationPoint[0],
+    stationPoint[1],
+    projectedPoints,
+    hour[variableKey],
+  );
 }
 
 export function buildTemperatureContours(
@@ -459,7 +484,7 @@ export function buildTemperatureContours(
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
       values.push(
-        interpolateTemperature(x, y, projectedPoints, hour.temperature_2m),
+        interpolateWeatherValue(x, y, projectedPoints, hour.temperature_2m),
       );
     }
   }
@@ -500,7 +525,7 @@ export function buildTemperatureCells(
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      const rawValue = interpolateTemperature(
+      const rawValue = interpolateWeatherValue(
         x + CONTOUR_CELL_SIZE / 2,
         y + CONTOUR_CELL_SIZE / 2,
         projectedPoints,

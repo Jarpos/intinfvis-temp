@@ -8,9 +8,11 @@ import {
   appendTrainStations,
   localStations,
   icStations,
-  loadDelayConnections,
+  loadDelayTripsPerDay,
+  aggregateDelayConnections,
+  buildStationDelayImpactStats,
 } from "./data/bahn";
-import type { Connection, DelayDateRange, Station } from "./data/bahn";
+import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import { appendWeatherOverlay } from "./weatherOverlay";
@@ -28,10 +30,14 @@ const g = map_svg.append("g");
 const LOCAL_STATIONS_ZOOM_LEVEL = 2;
 let currentZoomTransform = d3.zoomIdentity;
 let focusedState: string | null = null;
+const focusedStateListeners = new Set<(state: string | null) => void>();
 let isClickFocusing = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
+let dailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+let activeDelayDate: string | null = null;
+let previewDelayDate: string | null = null;
 let trainDelayRequestKey = "";
 let trainDelayLoadToken = 0;
 let selectedDelayRange: DelayDateRange = {
@@ -41,6 +47,48 @@ let selectedDelayRange: DelayDateRange = {
 const allStationNames = new Set(localStations.map((station) => station.name));
 const selectedStationNames = new Set(allStationNames);
 const geoPath = d3.geoPath(projection);
+const loadingOverlay = document.getElementById("loading-overlay");
+const loadingOverlayTitle =
+  loadingOverlay?.querySelector<HTMLElement>(".loader-title") ?? null;
+let loadingTaskCount = 0;
+let loadingHideTimer: number | null = null;
+
+function beginLoadingTask(message: string) {
+  loadingTaskCount += 1;
+
+  if (loadingHideTimer !== null) {
+    window.clearTimeout(loadingHideTimer);
+    loadingHideTimer = null;
+  }
+
+  if (loadingOverlayTitle) {
+    loadingOverlayTitle.textContent = message;
+  }
+
+  loadingOverlay?.classList.remove("is-hidden");
+
+  let isComplete = false;
+
+  return () => {
+    if (isComplete) {
+      return;
+    }
+
+    isComplete = true;
+    loadingTaskCount = Math.max(0, loadingTaskCount - 1);
+
+    if (loadingTaskCount > 0) {
+      return;
+    }
+
+    loadingHideTimer = window.setTimeout(() => {
+      loadingOverlay?.classList.add("is-hidden");
+      loadingHideTimer = null;
+    }, 0);
+  };
+}
+
+const completeInitialLoading = beginLoadingTask("Loading map data...");
 
 function regionKey(state?: string | null, region?: string | null) {
   return state && region ? `${state}|${region}` : null;
@@ -52,6 +100,115 @@ function stateName(feature: GeoJSON.Feature) {
     (feature.properties as { NAME_1?: string; name?: string } | null)?.name ??
     "Unknown"
   );
+}
+
+function getMapViewport() {
+  return (
+    document.getElementById("map-viewport") ??
+    document.getElementById("map-panel")
+  );
+}
+
+function screenPointToSvgPoint(x: number, y: number) {
+  const svg = map_svg.node();
+  const matrix = svg?.getScreenCTM()?.inverse();
+
+  if (!svg || !matrix) {
+    return [x, y] as [number, number];
+  }
+
+  const point = svg.createSVGPoint();
+  point.x = x;
+  point.y = y;
+  const transformedPoint = point.matrixTransform(matrix);
+
+  return [transformedPoint.x, transformedPoint.y] as [number, number];
+}
+
+function getMapFocusRect() {
+  const mapViewport = getMapViewport();
+  const viewportRect = mapViewport?.getBoundingClientRect();
+
+  if (!viewportRect) {
+    return {
+      left: 0,
+      top: 0,
+      right: WIDTH,
+      bottom: HEIGHT,
+      width: WIDTH,
+      height: HEIGHT,
+      centerX: WIDTH / 2,
+      centerY: HEIGHT / 2,
+    };
+  }
+
+  const screenRect = {
+    left: viewportRect.left,
+    top: viewportRect.top,
+    right: viewportRect.right,
+    bottom: viewportRect.bottom,
+  };
+
+  if (viewportRect) {
+    const panelRect = document
+      .querySelector<HTMLElement>(".weather-panel")
+      ?.getBoundingClientRect();
+    const timelineRect = document
+      .querySelector<HTMLElement>(".weather-timeline")
+      ?.getBoundingClientRect();
+    const gap = 16;
+
+    if (
+      panelRect &&
+      panelRect.width > 0 &&
+      panelRect.right > viewportRect.left &&
+      panelRect.left < viewportRect.right
+    ) {
+      screenRect.left = Math.min(
+        screenRect.right,
+        Math.max(screenRect.left, panelRect.right + gap),
+      );
+    }
+
+    if (
+      timelineRect &&
+      timelineRect.height > 0 &&
+      timelineRect.top > viewportRect.top &&
+      timelineRect.top < viewportRect.bottom
+    ) {
+      screenRect.bottom = Math.max(
+        screenRect.top,
+        Math.min(screenRect.bottom, timelineRect.top - gap),
+      );
+    }
+  }
+
+  if (screenRect.right - screenRect.left < 240) {
+    screenRect.left = Math.max(viewportRect.left, screenRect.right - 240);
+  }
+
+  if (screenRect.bottom - screenRect.top < 240) {
+    screenRect.top = Math.max(viewportRect.top, screenRect.bottom - 240);
+  }
+
+  const [left, top] = screenPointToSvgPoint(screenRect.left, screenRect.top);
+  const [right, bottom] = screenPointToSvgPoint(
+    screenRect.right,
+    screenRect.bottom,
+  );
+  const width = Math.max(1, right - left);
+  const height = Math.max(1, bottom - top);
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width,
+    height,
+    centerX: left + width / 2,
+    centerY: top + height / 2,
+  };
 }
 
 function coordinateKey([longitude, latitude]: GeoJSON.Position) {
@@ -151,8 +308,30 @@ function buildStateBoundaryPaths() {
 // Germany Map
 const germanyAreas = appendGermany(g);
 
+let trainStationsLayer: d3.Selection<
+  SVGGElement,
+  undefined,
+  null,
+  undefined
+> | null = null;
+let highlightedWeatherImpactStationEva: number | null = null;
+
+function setWeatherImpactStationHighlight(stationEva: number | null) {
+  highlightedWeatherImpactStationEva = stationEva;
+
+  trainStationsLayer
+    ?.selectAll<SVGImageElement, Station>("image.train-station-icon")
+    .classed(
+      "is-weather-impact-highlighted",
+      (station) => station.eva === highlightedWeatherImpactStationEva,
+    );
+}
+
 // Hourly historic temperature map
-const weatherOverlay = await appendWeatherOverlay(g);
+const weatherOverlay = await appendWeatherOverlay(g, {
+  beginLoadingTask,
+  onStationHoverChange: setWeatherImpactStationHighlight,
+});
 
 const stateHoverLayer = g
   .append("g")
@@ -227,8 +406,8 @@ stateHoverAreas
     tooltip.style("display", "none");
   });
 
-const trainLinesLayer = g.append("g").attr("pointer-events", "none");
-const trainStationsLayer = g.append("g");
+const trainLinesLayer = g.append("g");
+trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
 
 function featuresForState(state: string) {
@@ -264,12 +443,14 @@ function transformForState(state: string) {
   const [[x0, y0], [x1, y1]] = geoPath.bounds(collection);
   const dx = x1 - x0;
   const dy = y1 - y0;
-  const mapPanel = document.getElementById("map-panel");
-  const viewportWidth = mapPanel?.clientWidth || WIDTH;
-  const viewportHeight = mapPanel?.clientHeight || HEIGHT;
-  const fitPadding = 150;
-  const usableWidth = Math.max(240, viewportWidth - fitPadding * 2);
-  const usableHeight = Math.max(240, viewportHeight - fitPadding * 2);
+  const focusRect = getMapFocusRect();
+  const fitPadding = Math.min(
+    150,
+    focusRect.width * 0.18,
+    focusRect.height * 0.18,
+  );
+  const usableWidth = Math.max(180, focusRect.width - fitPadding * 2);
+  const usableHeight = Math.max(180, focusRect.height - fitPadding * 2);
   const scale = Math.min(
     8,
     Math.max(
@@ -277,10 +458,14 @@ function transformForState(state: string) {
       Math.min(usableWidth / dx, usableHeight / dy),
     ),
   );
-  const translateX = viewportWidth / 2 - (scale * (x0 + x1)) / 2;
-  const translateY = viewportHeight / 2 - (scale * (y0 + y1)) / 2;
+  const translateX = focusRect.centerX - (scale * (x0 + x1)) / 2;
+  const translateY = focusRect.centerY - (scale * (y0 + y1)) / 2;
 
   return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
+}
+
+function notifyFocusedStateChanged() {
+  focusedStateListeners.forEach((listener) => listener(focusedState));
 }
 
 function focusState(state: string | null, zoomToState = false) {
@@ -288,7 +473,13 @@ function focusState(state: string | null, zoomToState = false) {
     return;
   }
 
+  const stateChanged = focusedState !== state;
   focusedState = state;
+
+  if (stateChanged) {
+    notifyFocusedStateChanged();
+  }
+
   updateMapVisibility();
   renderTrainNetwork();
   tooltip.style("display", "none");
@@ -315,13 +506,55 @@ function focusState(state: string | null, zoomToState = false) {
   }
 }
 
+function transformForGermany() {
+  const [[x0, y0], [x1, y1]] = geoPath.bounds(geojson);
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const focusRect = getMapFocusRect();
+  const fitPadding = Math.min(
+    40,
+    focusRect.width * 0.05,
+    focusRect.height * 0.05,
+  );
+  const usableWidth = Math.max(180, focusRect.width - fitPadding * 2);
+  const usableHeight = Math.max(180, focusRect.height - fitPadding * 2);
+  const scale = Math.min(usableWidth / dx, usableHeight / dy);
+  const translateX = focusRect.centerX - (scale * (x0 + x1)) / 2;
+  const translateY = focusRect.centerY - (scale * (y0 + y1)) / 2;
+
+  return d3.zoomIdentity.translate(translateX, translateY).scale(scale);
+}
+
+function refitMap(transition = false) {
+  if (!zoom) {
+    return;
+  }
+
+  const nextTransform = focusedState ? transformForState(focusedState) : transformForGermany();
+
+  if (!nextTransform) {
+    return;
+  }
+
+  if (transition) {
+    map_svg
+      .transition()
+      .duration(350)
+      .call(zoom.transform, nextTransform);
+  } else {
+    map_svg.call(zoom.transform, nextTransform);
+  }
+}
+
+document.addEventListener("weather-impact-layout-change", () => {
+  window.requestAnimationFrame(() => refitMap(true));
+});
+
 function stateAtViewportCenter() {
-  const mapPanel = document.getElementById("map-panel");
-  const viewportWidth = mapPanel?.clientWidth || WIDTH;
-  const viewportHeight = mapPanel?.clientHeight || HEIGHT;
+  const focusRect = getMapFocusRect();
   const mapPoint = currentZoomTransform.invert([
-    viewportWidth / 2,
-    viewportHeight / 2,
+    focusRect.centerX,
+    focusRect.centerY,
   ]);
   const coordinates = projection.invert?.(mapPoint);
 
@@ -349,57 +582,6 @@ function stateAtScreenPoint(point: [number, number]) {
   );
 
   return containingFeature ? stateName(containingFeature) : null;
-}
-
-function regionBoundsIntersectViewport(feature: GeoJSON.Feature, padding = 64) {
-  const [[minX, minY], [maxX, maxY]] = geoPath.bounds(feature);
-  const screenMinX = currentZoomTransform.applyX(minX);
-  const screenMaxX = currentZoomTransform.applyX(maxX);
-  const screenMinY = currentZoomTransform.applyY(minY);
-  const screenMaxY = currentZoomTransform.applyY(maxY);
-
-  return (
-    screenMaxX >= -padding &&
-    screenMinX <= WIDTH + padding &&
-    screenMaxY >= -padding &&
-    screenMinY <= HEIGHT + padding
-  );
-}
-
-function visibleRegionKeys() {
-  const visibleRegions = new Set<string>();
-
-  geojson.features.forEach((feature) => {
-    if (!regionBoundsIntersectViewport(feature)) {
-      return;
-    }
-
-    const properties = feature.properties as {
-      NAME_1?: string;
-      NAME_2?: string;
-    } | null;
-    const key = regionKey(properties?.NAME_1, properties?.NAME_2);
-
-    if (key) {
-      visibleRegions.add(key);
-    }
-  });
-
-  return visibleRegions;
-}
-
-function stationIsInViewport(station: Station) {
-  const projected = projection(station.coords as [number, number]);
-
-  if (!projected) {
-    return false;
-  }
-
-  const [x, y] = projected;
-  const screenX = currentZoomTransform.applyX(x);
-  const screenY = currentZoomTransform.applyY(y);
-
-  return screenX >= 0 && screenX <= WIDTH && screenY >= 0 && screenY <= HEIGHT;
 }
 
 function mergeStationsByEva(...stationGroups: Station[][]) {
@@ -456,16 +638,19 @@ function requestTrainDelayConnections() {
 
   trainDelayRequestKey = requestKey;
   trainConnections = [];
+  dailyDelayTrips = null;
 
   const requestToken = ++trainDelayLoadToken;
 
-  loadDelayConnections(selectedDelayRange, regionNames)
-    .then((connections) => {
+  loadDelayTripsPerDay(selectedDelayRange, regionNames)
+    .then((tripsPerDay) => {
       if (requestToken !== trainDelayLoadToken) {
         return;
       }
 
-      trainConnections = connections;
+      dailyDelayTrips = tripsPerDay;
+      const allTrips = Object.values(tripsPerDay).flat();
+      trainConnections = aggregateDelayConnections(allTrips);
       renderTrainNetwork();
     })
     .catch((error) => {
@@ -477,13 +662,191 @@ function requestTrainDelayConnections() {
     });
 }
 
+function positionTooltip(event: MouseEvent) {
+  tooltip
+    .style("left", `${event.pageX + 10}px`)
+    .style("top", `${event.pageY + 10}px`);
+}
+
+function showSectionDelayTooltip(event: MouseEvent, connection: Connection) {
+  const routeLine = document.createElement("div");
+  routeLine.textContent = `${connection.source.name} - ${connection.target.name}`;
+
+  const delayLine = document.createElement("div");
+  delayLine.textContent = `Avg delay: ${(connection.delay / 60).toFixed(1)} min`;
+
+  const delayCountLine = document.createElement("div");
+  delayCountLine.textContent = `Delay count: ${formatDelayCount(
+    connection.delayCount,
+  )}`;
+
+  tooltip.node()?.replaceChildren(routeLine, delayLine, delayCountLine);
+  tooltip.style("display", "block").style("background", COLORS.TOOLTIP.BACKGROUND);
+  positionTooltip(event);
+}
+
+type DirectionalStationDelayStats = {
+  delayCount: number;
+  weightedDelay: number;
+};
+
+type StationDelayStats = {
+  total: DirectionalStationDelayStats;
+  incoming: DirectionalStationDelayStats;
+  outgoing: DirectionalStationDelayStats;
+};
+
+function createDirectionalStationDelayStats(): DirectionalStationDelayStats {
+  return {
+    delayCount: 0,
+    weightedDelay: 0,
+  };
+}
+
+function createStationDelayStats(): StationDelayStats {
+  return {
+    total: createDirectionalStationDelayStats(),
+    incoming: createDirectionalStationDelayStats(),
+    outgoing: createDirectionalStationDelayStats(),
+  };
+}
+
+function stationDelayStatsForEva(
+  statsByEva: Map<number, StationDelayStats>,
+  eva: number,
+) {
+  let stats = statsByEva.get(eva);
+
+  if (!stats) {
+    stats = createStationDelayStats();
+    statsByEva.set(eva, stats);
+  }
+
+  return stats;
+}
+
+function buildStationDelayStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+) {
+  const statsByEva = new Map<number, StationDelayStats>();
+  const incomingStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "incoming",
+  );
+  const outgoingStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "outgoing",
+  );
+  const totalStats = buildStationDelayImpactStats(
+    trips,
+    visibleStations,
+    "both",
+  );
+
+  visibleStations.forEach((station) => {
+    const sourceStats = stationDelayStatsForEva(
+      statsByEva,
+      station.eva,
+    );
+    const total = totalStats.get(station.eva);
+    const incoming = incomingStats.get(station.eva);
+    const outgoing = outgoingStats.get(station.eva);
+
+    if (total) {
+      sourceStats.total.delayCount = total.delayCount;
+      sourceStats.total.weightedDelay = total.weightedDelay;
+    }
+
+    if (incoming) {
+      sourceStats.incoming.delayCount = incoming.delayCount;
+      sourceStats.incoming.weightedDelay = incoming.weightedDelay;
+    }
+
+    if (outgoing) {
+      sourceStats.outgoing.delayCount = outgoing.delayCount;
+      sourceStats.outgoing.weightedDelay = outgoing.weightedDelay;
+    }
+  });
+
+  return statsByEva;
+}
+
+function formatAverageDelay(stats: DirectionalStationDelayStats) {
+  if (stats.delayCount <= 0) {
+    return "N/A";
+  }
+
+  return `${(stats.weightedDelay / stats.delayCount / 60).toFixed(1)} min`;
+}
+
+function formatDelayCount(count: number) {
+  return count.toLocaleString("de-DE");
+}
+
+function showStationDelayTooltip(
+  event: MouseEvent,
+  station: Station,
+  stationDelayStats: StationDelayStats,
+) {
+  const stationNameLine = document.createElement("div");
+  stationNameLine.textContent = station.name;
+
+  const totalDelayCountLine = document.createElement("div");
+  totalDelayCountLine.textContent = `Section delay count: ${formatDelayCount(
+    stationDelayStats.total.delayCount,
+  )}`;
+
+  const totalDelayLine = document.createElement("div");
+  totalDelayLine.textContent = `Avg section delay: ${formatAverageDelay(
+    stationDelayStats.total,
+  )}`;
+
+  const incomingDelayCountLine = document.createElement("div");
+  incomingDelayCountLine.textContent = `Incoming delay count: ${formatDelayCount(
+    stationDelayStats.incoming.delayCount,
+  )}`;
+
+  const outgoingDelayCountLine = document.createElement("div");
+  outgoingDelayCountLine.textContent = `Outgoing delay count: ${formatDelayCount(
+    stationDelayStats.outgoing.delayCount,
+  )}`;
+
+  const incomingDelayLine = document.createElement("div");
+  incomingDelayLine.textContent = `Avg incoming delay: ${formatAverageDelay(
+    stationDelayStats.incoming,
+  )}`;
+
+  const outgoingDelayLine = document.createElement("div");
+  outgoingDelayLine.textContent = `Avg outgoing delay: ${formatAverageDelay(
+    stationDelayStats.outgoing,
+  )}`;
+
+  tooltip
+    .node()
+    ?.replaceChildren(
+      stationNameLine,
+      totalDelayCountLine,
+      totalDelayLine,
+      incomingDelayCountLine,
+      outgoingDelayCountLine,
+      incomingDelayLine,
+      outgoingDelayLine,
+    );
+  tooltip.style("display", "block").style("background", COLORS.TOOLTIP.BACKGROUND);
+  positionTooltip(event);
+}
+
 function renderTrainNetwork() {
   requestTrainDelayConnections();
 
+  if (!trainStationsLayer) {
+    return;
+  }
+
   const shouldShowLocalStations = !!focusedState;
-  const localVisibleRegionKeys = shouldShowLocalStations
-    ? visibleRegionKeys()
-    : null;
   const visibleIcStations = icStations.filter((station) => {
     if (!selectedStationNames.has(station.name)) {
       return false;
@@ -505,13 +868,7 @@ function renderTrainNetwork() {
           return false;
         }
 
-        const key = regionKey(station.state, station.region);
-
-        if (!key || !localVisibleRegionKeys?.has(key)) {
-          return false;
-        }
-
-        return stationIsInViewport(station);
+        return true;
       })
     : [];
   const visibleStations = mergeStationsByEva(
@@ -526,40 +883,70 @@ function renderTrainNetwork() {
     ? COLORS.TRAINS.STATIONS
     : "#0f172a";
 
-  appendTrainStrecken(trainLinesLayer, trainConnections, visibleStationNames);
+  const dateToRender = previewDelayDate || activeDelayDate;
+  let displayConnections = trainConnections;
+  let displayTrips = dailyDelayTrips ? Object.values(dailyDelayTrips).flat() : [];
+  if (dateToRender && dailyDelayTrips) {
+    displayTrips = dailyDelayTrips[dateToRender] ?? [];
+    displayConnections = aggregateDelayConnections(
+      displayTrips,
+    );
+  }
+  const stationDelayStatsByEva = buildStationDelayStats(
+    displayTrips,
+    visibleStations,
+  );
+
+  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)
+    .on("mouseenter", function (event, d) {
+      d3.select(this).classed("is-section-delay-hovered", true).raise();
+      showSectionDelayTooltip(event, d);
+    })
+    .on("mousemove", (event) => {
+      positionTooltip(event);
+    })
+    .on("mouseleave", function () {
+      d3.select(this).classed("is-section-delay-hovered", false);
+      tooltip.style("display", "none");
+    });
   appendTrainStations(
     trainStationsLayer,
     visibleStations,
     stationRadius,
     stationFill,
   )
-    .on("mouseenter", function (_, d) {
+    .classed(
+      "is-weather-impact-highlighted",
+      (station) => station.eva === highlightedWeatherImpactStationEva,
+    )
+    .on("mouseenter", function (event, d) {
+      weatherOverlay.setHoveredStation(d.eva);
       d3.select(this)
         .attr("opacity", 1)
         .style(
           "filter",
           "brightness(0) saturate(100%) invert(83%) sepia(94%) saturate(1058%) hue-rotate(358deg) brightness(101%) contrast(106%)",
         );
-      const locationParts = [d.state, d.region].filter(Boolean);
-      tooltip
-        .style("display", "block")
-        .text(
-          locationParts.length > 0
-            ? `${d.name} - ${locationParts.join(", ")}`
-            : d.name,
-        );
+      showStationDelayTooltip(
+        event,
+        d,
+        stationDelayStatsByEva.get(d.eva) ?? createStationDelayStats(),
+      );
     })
     .on("mousemove", (event) => {
-      tooltip
-        .style("left", `${event.pageX + 10}px`)
-        .style("top", `${event.pageY + 10}px`);
+      positionTooltip(event);
     })
     .on("mouseleave", function () {
+      weatherOverlay.setHoveredStation(null);
       d3.select(this)
         .attr("opacity", this.getAttribute("data-station-opacity") ?? 1)
         .style("filter", null);
       tooltip.style("display", "none");
     });
+
+  if (!previewDelayDate) {
+    weatherOverlay.updateData(visibleStations, focusedState, dailyDelayTrips);
+  }
 }
 
 function scheduleTrainNetworkRender() {
@@ -586,7 +973,7 @@ function applyTemperatureView() {
   ).style("display", "");
 
   trainLinesLayer.style("display", "");
-  trainStationsLayer.style("display", "");
+  trainStationsLayer?.style("display", "");
   stateHoverLayer.style("display", "").style("pointer-events", "all");
   stateBoundaryLayer.style("display", "");
   updateMapVisibility();
@@ -637,6 +1024,16 @@ function setupStationFilterPanel() {
         stationState(station) === selectedState &&
         stationRegion(station) === selectedRegion,
     );
+  }
+
+  function syncListToFocusedState(state: string | null) {
+    if (selectedState === state) {
+      return;
+    }
+
+    selectedState = state;
+    selectedRegion = null;
+    renderStationList();
   }
 
   function makeDrillRow(
@@ -777,10 +1174,7 @@ function setupStationFilterPanel() {
       stateRows.forEach(({ name, count }) => {
         list.append(
           makeDrillRow(name, count, () => {
-            selectedState = name;
-            selectedRegion = null;
             focusState(name, true);
-            renderStationList();
           }),
         );
       });
@@ -798,10 +1192,7 @@ function setupStationFilterPanel() {
     if (!selectedRegion) {
       list.append(
         makeBackButton("Back to Bundesland", () => {
-          selectedState = null;
-          selectedRegion = null;
           focusState(null, false);
-          renderStationList();
         }),
       );
 
@@ -877,6 +1268,8 @@ function setupStationFilterPanel() {
     renderTrainNetwork();
     renderStationList();
   });
+  focusedStateListeners.add(syncListToFocusedState);
+  syncListToFocusedState(focusedState);
 
   renderStationList();
 }
@@ -916,13 +1309,23 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
   let fromDate = initialFromDate;
   let toDate = initialToDate;
+  let selectedDate = initialFromDate;
 
   function syncInputs() {
     fromInput.value = formatDateInputValue(fromDate);
     toInput.value = formatDateInputValue(toDate);
   }
 
-  function notifySelectedDateChange(selectedDate: Date) {
+  function ensureSelectedDateInRange() {
+    if (selectedDate < fromDate || selectedDate > toDate) {
+      selectedDate = fromDate;
+    }
+  }
+
+  function notifySelectedDateChange() {
+    ensureSelectedDateInRange();
+    activeDelayDate = formatDateInputValue(selectedDate);
+    previewDelayDate = null;
     setTrainDelayRange({
       from: formatDateInputValue(fromDate),
       to: formatDateInputValue(toDate),
@@ -946,42 +1349,43 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     syncInputs();
   }
 
-  function updateFromInput(value: string) {
-    const nextDate = parseDateInputValue(value);
+  const applyButton = getRequiredElement<HTMLButtonElement>("#apply-time-range");
 
-    if (!nextDate) {
+  function handleApply() {
+    const nextFromDate = parseDateInputValue(fromInput.value);
+    const nextToDate = parseDateInputValue(toInput.value);
+
+    if (!nextFromDate || !nextToDate) {
       return;
     }
 
-    fromDate = startOfDay(nextDate);
+    let nextFrom = startOfDay(nextFromDate);
+    let nextTo = startOfDay(nextToDate);
 
-    if (fromDate > toDate) {
-      toDate = fromDate;
+    if (nextFrom > nextTo) {
+      const temp = nextFrom;
+      nextFrom = nextTo;
+      nextTo = temp;
     }
+
+    fromDate = nextFrom;
+    toDate = nextTo;
 
     syncInputs();
-    notifySelectedDateChange(fromDate);
+    notifySelectedDateChange();
   }
 
-  function updateToInput(value: string) {
-    const nextDate = parseDateInputValue(value);
-
-    if (!nextDate) {
-      return;
+  applyButton.addEventListener("click", handleApply);
+  fromInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleApply();
     }
-
-    toDate = startOfDay(nextDate);
-
-    if (toDate < fromDate) {
-      fromDate = toDate;
+  });
+  toInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      handleApply();
     }
-
-    syncInputs();
-    notifySelectedDateChange(toDate);
-  }
-
-  fromInput.addEventListener("change", () => updateFromInput(fromInput.value));
-  toInput.addEventListener("change", () => updateToInput(toInput.value));
+  });
   document.addEventListener(SELECTED_DATE_CHANGE_EVENT, ((event: Event) => {
     const { from, to, selected, source } = (
       event as CustomEvent<SelectedDateChangeDetail>
@@ -993,13 +1397,19 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
 
     const nextFromDate = parseDateInputValue(from);
     const nextToDate = parseDateInputValue(to);
+    const nextSelectedDate = parseDateInputValue(selected);
 
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
 
       if (source === "weather-timeline") {
-        setTrainDelayRange({ from: selected, to: selected });
+        if (nextSelectedDate) {
+          selectedDate = startOfDay(nextSelectedDate);
+        }
+        activeDelayDate = selected;
+        renderTrainNetwork();
       } else {
+        activeDelayDate = null;
         setTrainDelayRange({
           from: formatDateInputValue(fromDate),
           to: formatDateInputValue(toDate),
@@ -1012,7 +1422,8 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     const { selected } = (event as CustomEvent<WeatherDatePreviewDetail>)
       .detail;
 
-    setTrainDelayRange({ from: selected, to: selected });
+    previewDelayDate = selected;
+    renderTrainNetwork();
   }) as EventListener);
 
   syncInputs();
@@ -1059,15 +1470,16 @@ setupStationFilterPanel();
 setupTimeRangePicker(DEFAULT_DATE_RANGE);
 applyTemperatureView();
 
-const mapPanel = getRequiredElement<HTMLElement>("#map-panel");
-mapPanel.append(map_svg.node()!);
+const mapViewport = getRequiredElement<HTMLElement>("#map-viewport");
+mapViewport.append(map_svg.node()!);
+
+// Center and fit the Germany map to the visual area initially
+refitMap(false);
+
+window.addEventListener("resize", () => {
+  refitMap(false);
+});
 
 document.body.append(tooltip.node()!);
 
-const loadingOverlay = document.getElementById("loading-overlay");
-if (loadingOverlay) {
-  loadingOverlay.style.opacity = "0";
-  setTimeout(() => {
-    loadingOverlay.remove();
-  }, 400);
-}
+completeInitialLoading();

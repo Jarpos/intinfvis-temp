@@ -35,6 +35,7 @@ export type DelayDateRange = {
 export type DelayTrip = {
   from_stop_id: number;
   to_stop_id: number;
+  delay_count: number;
   avg_delay: number;
   entries_count: number;
 };
@@ -46,7 +47,7 @@ type DelaySummary = {
 
 function stationIconForQuayCount(quayCount: number) {
   if (Number.isFinite(quayCount) && quayCount >= 1 && quayCount <= 4) {
-    return circleStationIcon;
+    return triangleStationIcon;
   }
 
   if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
@@ -57,7 +58,7 @@ function stationIconForQuayCount(quayCount: number) {
     return starStationIcon;
   }
 
-  return triangleStationIcon;
+  return circleStationIcon;
 }
 
 function stationIconSizeMultiplier(quayCount: number) {
@@ -125,29 +126,29 @@ export function appendTrainStrecken(
       selectedStationNames.has(c.target.name),
   );
 
-  return (
-    g
-      .selectAll("line")
-      .data(filteredConnections, (d: any) => `${d.source.eva}-${d.target.eva}`)
-      .join("line")
-      .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
-      .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
-      .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
-      .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
-      // .attr("stroke", COLORS.TRAINS.LINES)
-      .attr("stroke", (d) =>
-        d.delay >= 300
-          ? "#d73027"
-          : d.delay >= 120
-            ? "#fc8d59"
-            : d.delay >= 60
-              ? "#fee08b"
-              : "#1a9850",
-      )
-      .attr("stroke-width", 0.9)
-      .attr("stroke-opacity", 0.9)
-      .attr("vector-effect", "non-scaling-stroke")
-  );
+  return g
+    .selectAll<SVGLineElement, Connection>("line.train-delay-line")
+    .data(filteredConnections, (d) => `${d.source.eva}-${d.target.eva}`)
+    .join("line")
+    .attr("class", "train-delay-line")
+    .attr("x1", (d) => projection(d.source.coords as [number, number])![0])
+    .attr("y1", (d) => projection(d.source.coords as [number, number])![1])
+    .attr("x2", (d) => projection(d.target.coords as [number, number])![0])
+    .attr("y2", (d) => projection(d.target.coords as [number, number])![1])
+    // .attr("stroke", COLORS.TRAINS.LINES)
+    .attr("stroke", (d) =>
+      d.delay >= 300
+        ? "#d73027"
+        : d.delay >= 120
+          ? "#fc8d59"
+          : d.delay >= 60
+            ? "#fee08b"
+            : "#1a9850",
+    )
+    .attr("stroke-width", 0.9)
+    .attr("stroke-opacity", 0.9)
+    .attr("pointer-events", "stroke")
+    .attr("vector-effect", "non-scaling-stroke");
 }
 
 export function appendTrainStations(
@@ -206,13 +207,32 @@ export type Connection = {
   source: Station;
   target: Station;
   delay: number;
+  delayCount: number;
+};
+
+export type DelayDirection = "incoming" | "outgoing" | "both";
+
+export type StationDelayImpactStats = {
+  station: Station;
+  delayCount: number;
+  weightedDelay: number;
+};
+
+export type StationDelayAddedStats = {
+  station: Station;
+  delayAdded: number;
+  entriesCount: number;
+  incomingEntriesCount: number;
+  outgoingEntriesCount: number;
+  incomingAvgDelay: number | null;
+  outgoingAvgDelay: number | null;
 };
 
 type DelayConnectionAggregate = {
   source: Station;
   target: Station;
   weightedDelay: number;
-  entries: number;
+  delayCount: number;
 };
 
 const stationByEva = new Map(
@@ -226,6 +246,7 @@ function parseDelayRow(d: Record<string, string | undefined>): DelayTrip {
   return {
     from_stop_id: Number(d.from_stop_id),
     to_stop_id: Number(d.to_stop_id),
+    delay_count: Number(d.delay_count),
     avg_delay: Number(d.avg_delay),
     entries_count: Number(d.entries_count),
   };
@@ -285,44 +306,241 @@ function delayRegionPathSegment(regionName: string) {
   return encodeURIComponent(regionName);
 }
 
-function aggregateDelayConnections(trips: DelayTrip[]) {
+function delayCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.delay_count) && trip.delay_count > 0
+    ? trip.delay_count
+    : 0;
+}
+
+function entriesCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.entries_count) && trip.entries_count > 0
+    ? trip.entries_count
+    : 0;
+}
+
+function orderedStationPair(source: Station, target: Station) {
+  return source.eva <= target.eva
+    ? { source, target }
+    : { source: target, target: source };
+}
+
+function addTripToConnectionAggregate(
+  connectionsByEdge: Map<string, DelayConnectionAggregate>,
+  source: Station,
+  target: Station,
+  trip: DelayTrip,
+  delayCount: number,
+) {
+  const ordered = orderedStationPair(source, target);
+  const key = `${ordered.source.eva}-${ordered.target.eva}`;
+  const current = connectionsByEdge.get(key);
+
+  if (current) {
+    current.weightedDelay += trip.avg_delay * delayCount;
+    current.delayCount += delayCount;
+  } else {
+    connectionsByEdge.set(key, {
+      source: ordered.source,
+      target: ordered.target,
+      weightedDelay: trip.avg_delay * delayCount,
+      delayCount,
+    });
+  }
+}
+
+export function aggregateDelayConnections(trips: DelayTrip[]) {
   const connectionsByEdge = new Map<string, DelayConnectionAggregate>();
 
   trips.forEach((trip) => {
     const source = stationByEva.get(trip.from_stop_id);
     const target = stationByEva.get(trip.to_stop_id);
+    const delayCount = delayCountForTrip(trip);
 
-    if (!source || !target || !Number.isFinite(trip.avg_delay)) {
+    if (!source || !target || !Number.isFinite(trip.avg_delay) || delayCount <= 0) {
       return;
     }
 
-    const key = `${source.eva}-${target.eva}`;
-    const entries =
-      Number.isFinite(trip.entries_count) && trip.entries_count > 0
-        ? trip.entries_count
-        : 1;
-    const current = connectionsByEdge.get(key);
-
-    if (current) {
-      current.weightedDelay += trip.avg_delay * entries;
-      current.entries += entries;
-    } else {
-      connectionsByEdge.set(key, {
-        source,
-        target,
-        weightedDelay: trip.avg_delay * entries,
-        entries,
-      });
-    }
+    addTripToConnectionAggregate(
+      connectionsByEdge,
+      source,
+      target,
+      trip,
+      delayCount,
+    );
   });
 
   return Array.from(connectionsByEdge.values()).map(
-    ({ source, target, weightedDelay, entries }) => ({
+    ({ source, target, weightedDelay, delayCount }) => ({
       source,
       target,
-      delay: weightedDelay / entries,
+      delay: weightedDelay / delayCount,
+      delayCount,
     }),
   );
+}
+
+export function buildStationDelayImpactStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+  direction: DelayDirection,
+) {
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const visibleConnections = aggregateDelayConnections(trips).filter(
+    (connection) =>
+      visibleStationsByEva.has(connection.source.eva) &&
+      visibleStationsByEva.has(connection.target.eva),
+  );
+
+  const statsByEva = new Map<number, StationDelayImpactStats>();
+  function addConnection(station: Station, connection: Connection) {
+    const current =
+      statsByEva.get(station.eva) ??
+      ({
+        station,
+        delayCount: 0,
+        weightedDelay: 0,
+      } satisfies StationDelayImpactStats);
+
+    current.delayCount += connection.delayCount;
+    current.weightedDelay += connection.delay * connection.delayCount;
+    statsByEva.set(station.eva, current);
+  }
+
+  visibleConnections.forEach((connection) => {
+    const isSelfConnection = connection.source.eva === connection.target.eva;
+
+    if (direction === "both") {
+      addConnection(connection.source, connection);
+
+      if (!isSelfConnection) {
+        addConnection(connection.target, connection);
+      }
+
+      return;
+    }
+
+    if (isSelfConnection) {
+      return;
+    }
+
+    if (direction === "outgoing") {
+      addConnection(connection.source, connection);
+    }
+
+    if (direction === "incoming") {
+      addConnection(connection.target, connection);
+    }
+  });
+
+  return statsByEva;
+}
+
+export function buildStationDelayAddedStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+) {
+  type DirectionStats = {
+    entriesCount: number;
+    weightedDelay: number;
+  };
+  type StationAccumulator = {
+    station: Station;
+    incoming: DirectionStats;
+    outgoing: DirectionStats;
+  };
+
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const statsByEva = new Map<number, StationAccumulator>();
+
+  function stationStats(station: Station) {
+    let stats = statsByEva.get(station.eva);
+
+    if (!stats) {
+      stats = {
+        station,
+        incoming: { entriesCount: 0, weightedDelay: 0 },
+        outgoing: { entriesCount: 0, weightedDelay: 0 },
+      };
+      statsByEva.set(station.eva, stats);
+    }
+
+    return stats;
+  }
+
+  trips.forEach((trip) => {
+    if (
+      trip.from_stop_id === trip.to_stop_id ||
+      !Number.isFinite(trip.avg_delay)
+    ) {
+      return;
+    }
+
+    const entriesCount = entriesCountForTrip(trip);
+
+    if (entriesCount <= 0) {
+      return;
+    }
+
+    const source = visibleStationsByEva.get(trip.from_stop_id);
+    const target = visibleStationsByEva.get(trip.to_stop_id);
+
+    if (!source || !target) {
+      return;
+    }
+
+    const weightedDelay = trip.avg_delay * entriesCount;
+    const sourceStats = stationStats(source);
+    const targetStats = stationStats(target);
+
+    sourceStats.outgoing.entriesCount += entriesCount;
+    sourceStats.outgoing.weightedDelay += weightedDelay;
+    targetStats.incoming.entriesCount += entriesCount;
+    targetStats.incoming.weightedDelay += weightedDelay;
+  });
+
+  const result = new Map<number, StationDelayAddedStats>();
+
+  statsByEva.forEach((stats, eva) => {
+    const incomingAvgDelay =
+      stats.incoming.entriesCount > 0
+        ? stats.incoming.weightedDelay / stats.incoming.entriesCount
+        : null;
+    const outgoingAvgDelay =
+      stats.outgoing.entriesCount > 0
+        ? stats.outgoing.weightedDelay / stats.outgoing.entriesCount
+        : null;
+
+    let delayAdded: number | null = null;
+
+    if (incomingAvgDelay !== null && outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay - incomingAvgDelay;
+    } else if (outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay;
+    } else if (incomingAvgDelay !== null) {
+      delayAdded = incomingAvgDelay;
+    }
+
+    if (delayAdded === null || !Number.isFinite(delayAdded)) {
+      return;
+    }
+
+    result.set(eva, {
+      station: stats.station,
+      delayAdded,
+      entriesCount:
+        stats.incoming.entriesCount + stats.outgoing.entriesCount,
+      incomingEntriesCount: stats.incoming.entriesCount,
+      outgoingEntriesCount: stats.outgoing.entriesCount,
+      incomingAvgDelay,
+      outgoingAvgDelay,
+    });
+  });
+
+  return result;
 }
 
 export async function loadDelayConnections(
@@ -356,4 +574,42 @@ export async function loadDelayConnections(
   );
 
   return aggregateDelayConnections(delayRows.flat());
+}
+
+export async function loadDelayTripsPerDay(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  const availableDates = await loadAvailableDelayDates();
+  const dates = delayDatesInRange(availableDates, range);
+  const regionNames = Array.from(new Set(nonIcRegions)).sort();
+  const regionNameSet = new Set(regionNames);
+
+  const results: { [date: string]: DelayTrip[] } = {};
+
+  await Promise.all(
+    dates.map(async (date) => {
+      const icUrl = `/data/bahn/csv/delays/ic/${date}.csv`;
+      const nonIcUrls =
+        regionNames.length > 0
+          ? (
+              await loadDelaySummaryRows(date)
+            )
+              .filter((summary) => regionNameSet.has(summary.region_name))
+              .map(
+                (summary) =>
+                  `/data/bahn/csv/delays/non_ic/${delayRegionPathSegment(summary.region_name)}/${summary.date}.csv`,
+              )
+          : [];
+
+      const urls = [icUrl, ...nonIcUrls];
+      const delayRows = await Promise.all(
+        urls.map((url) => loadDelayRows(url)),
+      );
+
+      results[date] = delayRows.flat();
+    }),
+  );
+
+  return results;
 }
