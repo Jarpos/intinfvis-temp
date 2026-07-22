@@ -7,6 +7,10 @@ const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 8;
 const CONTOUR_CELL_SIZE = 16;
+const projectedPointsByDataset = new WeakMap<
+  WeatherDataset,
+  Array<[number, number]>
+>();
 
 export type WeatherPoint = {
   name: string;
@@ -347,7 +351,7 @@ const normalizeResponses = (
   data: OpenMeteoLocationResponse | OpenMeteoLocationResponse[],
 ) => (Array.isArray(data) ? data : [data]);
 
-export async function loadHistoricalTemperatures(
+async function loadHistoricalTemperaturesUncached(
   range: WeatherDateRange = { from: new Date(), to: new Date() },
 ): Promise<WeatherDataset> {
   const points = buildWeatherGrid();
@@ -409,6 +413,45 @@ export async function loadHistoricalTemperatures(
   };
 }
 
+const historicalWeatherCache = new Map<string, Promise<WeatherDataset>>();
+const MAX_HISTORICAL_WEATHER_CACHE_ENTRIES = 4;
+
+export async function loadHistoricalTemperatures(
+  range: WeatherDateRange = { from: new Date(), to: new Date() },
+): Promise<WeatherDataset> {
+  const { start, end, selectedDay } = getWeatherWindow(range);
+  const key = `${toDateInputValue(start)}|${toDateInputValue(end)}`;
+  let datasetPromise = historicalWeatherCache.get(key);
+
+  if (datasetPromise) {
+    historicalWeatherCache.delete(key);
+    historicalWeatherCache.set(key, datasetPromise);
+  } else {
+    datasetPromise = loadHistoricalTemperaturesUncached(range);
+    historicalWeatherCache.set(key, datasetPromise);
+
+    while (
+      historicalWeatherCache.size > MAX_HISTORICAL_WEATHER_CACHE_ENTRIES
+    ) {
+      const oldestKey = historicalWeatherCache.keys().next().value;
+
+      if (oldestKey === undefined) {
+        break;
+      }
+
+      historicalWeatherCache.delete(oldestKey);
+    }
+  }
+
+  try {
+    const dataset = await datasetPromise;
+    return { ...dataset, selectedDate: selectedDay };
+  } catch (error) {
+    historicalWeatherCache.delete(key);
+    throw error;
+  }
+}
+
 export function interpolateWeatherValue(
   x: number,
   y: number,
@@ -456,9 +499,7 @@ export function interpolateWeatherValueAtCoordinate(
     return Number.NaN;
   }
 
-  const projectedPoints = dataset.points
-    .map((point) => projection([point.longitude, point.latitude]))
-    .filter((point): point is [number, number] => point !== null);
+  const projectedPoints = projectedWeatherPoints(dataset);
 
   return interpolateWeatherValue(
     stationPoint[0],
@@ -468,15 +509,26 @@ export function interpolateWeatherValueAtCoordinate(
   );
 }
 
+function projectedWeatherPoints(dataset: WeatherDataset) {
+  let projectedPoints = projectedPointsByDataset.get(dataset);
+
+  if (!projectedPoints) {
+    projectedPoints = dataset.points
+      .map((point) => projection([point.longitude, point.latitude]))
+      .filter((point): point is [number, number] => point !== null);
+    projectedPointsByDataset.set(dataset, projectedPoints);
+  }
+
+  return projectedPoints;
+}
+
 export function buildTemperatureContours(
   dataset: WeatherDataset,
   hour: WeatherHour,
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
-  const projectedPoints = dataset.points
-    .map((point) => projection([point.longitude, point.latitude]))
-    .filter((point): point is [number, number] => point !== null);
+  const projectedPoints = projectedWeatherPoints(dataset);
   const values: number[] = [];
 
   for (let row = 0; row < gridHeight; row += 1) {
@@ -513,9 +565,7 @@ export function buildTemperatureCells(
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
-  const projectedPoints = dataset.points
-    .map((point) => projection([point.longitude, point.latitude]))
-    .filter((point): point is [number, number] => point !== null);
+  const projectedPoints = projectedWeatherPoints(dataset);
   const cells: TemperatureCell[] = [];
 
   const rawValues = hour[variableKey];

@@ -8,11 +8,14 @@ import {
   appendTrainStations,
   localStations,
   icStations,
-  loadDelayTripsPerDay,
-  aggregateDelayConnections,
-  buildStationDelayImpactStats,
+  loadDelayRangeDataset,
 } from "./data/bahn";
-import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
+import type {
+  Connection,
+  DelayDateRange,
+  DelayRangeDataset,
+  Station,
+} from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
 import {
@@ -39,7 +42,7 @@ let isLayoutRecentering = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
-let dailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+let delayRangeDataset: DelayRangeDataset | null = null;
 let activeDelayDate: string | null = null;
 let previewDelayDate: string | null = null;
 let trainDelayRequestKey = "";
@@ -518,7 +521,7 @@ function focusState(state: string | null, zoomToState = false) {
         focusedState = state;
         isClickFocusing = false;
         updateMapVisibility();
-        renderTrainNetwork();
+        scheduleTrainNetworkRender();
       });
   } else {
     isClickFocusing = false;
@@ -695,19 +698,18 @@ function requestTrainDelayConnections() {
 
   trainDelayRequestKey = requestKey;
   trainConnections = [];
-  dailyDelayTrips = null;
+  delayRangeDataset = null;
 
   const requestToken = ++trainDelayLoadToken;
 
-  loadDelayTripsPerDay(selectedDelayRange, regionNames)
-    .then((tripsPerDay) => {
+  loadDelayRangeDataset(selectedDelayRange, regionNames)
+    .then((dataset) => {
       if (requestToken !== trainDelayLoadToken) {
         return;
       }
 
-      dailyDelayTrips = tripsPerDay;
-      const allTrips = Object.values(tripsPerDay).flat();
-      trainConnections = aggregateDelayConnections(allTrips);
+      delayRangeDataset = dataset;
+      trainConnections = dataset.rangeConnections;
       renderTrainNetwork();
     })
     .catch((error) => {
@@ -783,48 +785,40 @@ function stationDelayStatsForEva(
 }
 
 function buildStationDelayStats(
-  trips: DelayTrip[],
+  connections: Connection[],
   visibleStations: Station[],
 ) {
   const statsByEva = new Map<number, StationDelayStats>();
-  const incomingStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "incoming",
+  const visibleStationEvas = new Set(
+    visibleStations.map((station) => station.eva),
   );
-  const outgoingStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "outgoing",
-  );
-  const totalStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "both",
-  );
+  const add = (
+    eva: number,
+    direction: keyof StationDelayStats,
+    connection: Connection,
+  ) => {
+    const stats = stationDelayStatsForEva(statsByEva, eva)[direction];
+    stats.delayCount += connection.delayCount;
+    stats.weightedDelay += connection.delay * connection.delayCount;
+  };
 
-  visibleStations.forEach((station) => {
-    const sourceStats = stationDelayStatsForEva(
-      statsByEva,
-      station.eva,
-    );
-    const total = totalStats.get(station.eva);
-    const incoming = incomingStats.get(station.eva);
-    const outgoing = outgoingStats.get(station.eva);
+  connections.forEach((connection) => {
+    const sourceVisible = visibleStationEvas.has(connection.source.eva);
+    const targetVisible = visibleStationEvas.has(connection.target.eva);
+    const isSelfConnection =
+      connection.source.eva === connection.target.eva;
 
-    if (total) {
-      sourceStats.total.delayCount = total.delayCount;
-      sourceStats.total.weightedDelay = total.weightedDelay;
+    if (sourceVisible) {
+      add(connection.source.eva, "total", connection);
+
+      if (!isSelfConnection) {
+        add(connection.source.eva, "outgoing", connection);
+      }
     }
 
-    if (incoming) {
-      sourceStats.incoming.delayCount = incoming.delayCount;
-      sourceStats.incoming.weightedDelay = incoming.weightedDelay;
-    }
-
-    if (outgoing) {
-      sourceStats.outgoing.delayCount = outgoing.delayCount;
-      sourceStats.outgoing.weightedDelay = outgoing.weightedDelay;
+    if (targetVisible && !isSelfConnection) {
+      add(connection.target.eva, "total", connection);
+      add(connection.target.eva, "incoming", connection);
     }
   });
 
@@ -942,15 +936,14 @@ function renderTrainNetwork() {
 
   const dateToRender = previewDelayDate || activeDelayDate;
   let displayConnections = trainConnections;
-  let displayTrips = dailyDelayTrips ? Object.values(dailyDelayTrips).flat() : [];
-  if (dateToRender && dailyDelayTrips) {
-    displayTrips = dailyDelayTrips[dateToRender] ?? [];
-    displayConnections = aggregateDelayConnections(
-      displayTrips,
-    );
+  let displayTrips = delayRangeDataset?.rangeTrips ?? [];
+  if (dateToRender && delayRangeDataset) {
+    displayTrips = delayRangeDataset.tripsByDate[dateToRender] ?? [];
+    displayConnections =
+      delayRangeDataset.connectionsByDate[dateToRender] ?? [];
   }
   const stationDelayStatsByEva = buildStationDelayStats(
-    displayTrips,
+    displayConnections,
     visibleStations,
   );
 
@@ -1007,7 +1000,7 @@ function renderTrainNetwork() {
     });
 
   if (!previewDelayDate) {
-    weatherOverlay.updateData(visibleStations, focusedState, dailyDelayTrips);
+    weatherOverlay.updateData(visibleStations, focusedState, delayRangeDataset);
   }
 }
 
@@ -1509,7 +1502,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
           selectedDate = startOfDay(nextSelectedDate);
         }
         activeDelayDate = selected;
-        renderTrainNetwork();
+        scheduleTrainNetworkRender();
       } else {
         activeDelayDate = null;
         setTrainDelayRange({
@@ -1525,7 +1518,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       .detail;
 
     previewDelayDate = selected;
-    renderTrainNetwork();
+    scheduleTrainNetworkRender();
   }) as EventListener);
 
   syncInputs();
@@ -1546,7 +1539,6 @@ zoom = d3
 
     if (isClickFocusing || isLayoutRecentering) {
       updateMapVisibility();
-      scheduleTrainNetworkRender();
       return;
     }
 
@@ -1565,7 +1557,6 @@ zoom = d3
     }
 
     updateMapVisibility();
-    scheduleTrainNetworkRender();
   });
 map_svg.call(zoom);
 setupStationFilterPanel();

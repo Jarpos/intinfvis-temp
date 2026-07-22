@@ -15,7 +15,6 @@ import {
   displayedTemperature,
   interpolateWeatherValueAtCoordinate,
   loadHistoricalTemperatures,
-  temperatureBand,
   temperatureColor,
   toDateInputValue,
 } from "./data/weather";
@@ -28,12 +27,12 @@ import type {
 } from "./data/weather";
 import { geojson, projection } from "./data/geo";
 import {
-  aggregateDelayConnections,
   buildStationDelayAddedStats,
   buildStationDelayImpactStats,
 } from "./data/bahn";
 import type {
   DelayDirection,
+  DelayRangeDataset,
   DelayTrip,
   Station,
   StationDelayAddedStats,
@@ -52,7 +51,9 @@ type WeatherOverlay = {
   sliderWrap: HTMLDivElement;
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
+  rasterCanvas: HTMLCanvasElement;
   currentCells: TemperatureCell[];
+  currentCellsByKey: Map<string, TemperatureCell>;
   currentCellColors: Map<string, string>;
   chartContainer?: HTMLDivElement;
   legendContainer?: HTMLDivElement;
@@ -92,7 +93,7 @@ export type WeatherOverlayController = {
   updateData: (
     visibleStations: Station[],
     focusedState: string | null,
-    dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
+    delayDataset: DelayRangeDataset | null,
   ) => void;
 };
 
@@ -446,25 +447,12 @@ function noonForDate(date: Date) {
   );
 }
 
-function closestIndexForDateLabel(hours: WeatherHour[], date: Date) {
-  const noon = noonForDate(date);
-  const candidates = hours
-    .map((hour, index) => ({ hour, index }))
-    .filter(({ hour }) => sameCalendarDate(hour.time, date));
-
-  return candidates.reduce(
-    (best, candidate) => {
-      const distance = Math.abs(candidate.hour.time.getTime() - noon.getTime());
-      return distance < best.distance
-        ? { index: candidate.index, distance }
-        : best;
-    },
-    { index: 0, distance: Number.POSITIVE_INFINITY },
-  ).index;
-}
-
 function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
   container.replaceChildren();
+  const labelsByDay = new Map<
+    string,
+    { date: Date; index: number; distance: number }
+  >();
 
   hours.forEach((hour, index) => {
     const tick = document.createElement("span");
@@ -480,14 +468,19 @@ function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
     }
 
     container.append(tick);
+
+    const key = dayKey(hour.time);
+    const distance = Math.abs(
+      hour.time.getTime() - noonForDate(hour.time).getTime(),
+    );
+    const currentLabel = labelsByDay.get(key);
+
+    if (!currentLabel || distance < currentLabel.distance) {
+      labelsByDay.set(key, { date: hour.time, index, distance });
+    }
   });
 
-  const labelDates = Array.from(
-    new Map(hours.map((hour) => [dayKey(hour.time), hour.time])).values(),
-  );
-
-  labelDates.forEach((date) => {
-    const index = closestIndexForDateLabel(hours, date);
+  labelsByDay.forEach(({ date, index }) => {
     const hour = hours[index];
 
     const label = document.createElement("div");
@@ -543,6 +536,22 @@ function buildRenderableCells(
   index: number,
   variableKey: "temperature_2m" | "precipitation" | "snow_depth",
 ) {
+  let datasetCache = renderableCellsCache.get(dataset);
+
+  if (!datasetCache) {
+    datasetCache = new Map();
+    renderableCellsCache.set(dataset, datasetCache);
+  }
+
+  const cacheKey = `${index}|${variableKey}`;
+  const cachedCells = datasetCache.get(cacheKey);
+
+  if (cachedCells) {
+    datasetCache.delete(cacheKey);
+    datasetCache.set(cacheKey, cachedCells);
+    return cachedCells;
+  }
+
   const selectedCells = buildTemperatureCells(
     dataset,
     dataset.hours[index],
@@ -550,6 +559,8 @@ function buildRenderableCells(
   );
 
   if (selectedCells.length > 0) {
+    datasetCache.set(cacheKey, selectedCells);
+    trimRenderableCellCache(datasetCache);
     return selectedCells;
   }
 
@@ -567,12 +578,51 @@ function buildRenderableCells(
       );
 
       if (fallbackCells.length > 0) {
+        datasetCache.set(cacheKey, fallbackCells);
+        trimRenderableCellCache(datasetCache);
         return fallbackCells;
       }
     }
   }
 
   return selectedCells;
+}
+
+const renderableCellsCache = new WeakMap<
+  WeatherDataset,
+  Map<string, TemperatureCell[]>
+>();
+const MAX_RENDERABLE_CELL_CACHE_ENTRIES = 16;
+
+function trimRenderableCellCache(cache: Map<string, TemperatureCell[]>) {
+  while (cache.size > MAX_RENDERABLE_CELL_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+
+    if (oldestKey === undefined) {
+      return;
+    }
+
+    cache.delete(oldestKey);
+  }
+}
+
+function weatherCellKey(x: number, y: number) {
+  return `${x},${y}`;
+}
+
+function weatherCellAtPoint(overlay: WeatherOverlay, x: number, y: number) {
+  const cellSize = overlay.currentCells[0]?.size;
+
+  if (!cellSize) {
+    return undefined;
+  }
+
+  return overlay.currentCellsByKey.get(
+    weatherCellKey(
+      Math.floor(x / cellSize) * cellSize,
+      Math.floor(y / cellSize) * cellSize,
+    ),
+  );
 }
 
 function renderHour(
@@ -588,9 +638,12 @@ function renderHour(
   const cells = buildRenderableCells(dataset, index, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
+  overlay.currentCellsByKey = new Map(
+    cells.map((cell) => [weatherCellKey(cell.x, cell.y), cell]),
+  );
   overlay.currentCellColors = new Map(
     cells.map((cell) => [
-      `${cell.x},${cell.y}`,
+      weatherCellKey(cell.x, cell.y),
       temperatureColor(cell.temperature),
     ]),
   );
@@ -603,20 +656,26 @@ function renderHour(
     "--weather-progress",
     `${progress}%`,
   );
+  const cellSize = cells[0]?.size ?? 1;
+  const canvasWidth = Math.ceil(WIDTH / cellSize);
+  const canvasHeight = Math.ceil(HEIGHT / cellSize);
+  const canvas = overlay.rasterCanvas;
 
-  overlay.layer
-    .selectAll<SVGRectElement, (typeof cells)[number]>("rect.weather-cell")
-    .data(cells)
-    .join("rect")
-    .attr("class", "weather-cell")
-    .attr("x", (d) => d.x)
-    .attr("y", (d) => d.y)
-    .attr("width", (d) => d.size)
-    .attr("height", (d) => d.size)
-    .attr("fill", (d) => temperatureColor(d.temperature))
-    .attr("data-temperature", (d) => d.rawValue.toFixed(1))
-    .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
-    .attr("opacity", 1);
+  if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+  }
+
+  const context = canvas.getContext("2d", { alpha: true });
+
+  if (context) {
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
+    context.imageSmoothingEnabled = false;
+    cells.forEach((cell) => {
+      context.fillStyle = temperatureColor(cell.temperature);
+      context.fillRect(cell.x / cellSize, cell.y / cellSize, 1, 1);
+    });
+  }
 
   document.dispatchEvent(new CustomEvent(WEATHER_OVERLAY_RENDER_EVENT));
 }
@@ -655,13 +714,7 @@ function bindTooltip(
   layer
     .on("mousemove", (event) => {
       const [x, y] = d3.pointer(event, layer.node());
-      const cell = overlay.currentCells.find(
-        (candidate) =>
-          x >= candidate.x &&
-          x < candidate.x + candidate.size &&
-          y >= candidate.y &&
-          y < candidate.y + candidate.size,
-      );
+      const cell = weatherCellAtPoint(overlay, x, y);
 
       if (
         cell &&
@@ -690,7 +743,7 @@ function getChartData(
   dataset: WeatherDataset,
   visibleStationNames: Set<string>,
   focusedState: string | null,
-  dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
+  delayDataset: DelayRangeDataset | null,
 ) {
   let activePoints = dataset.points;
   if (focusedState) {
@@ -734,9 +787,8 @@ function getChartData(
     let delaysCount = 0;
     let avgDelayMin = 0;
 
-    if (dailyDelayTrips && dailyDelayTrips[dateStr]) {
-      const trips = dailyDelayTrips[dateStr];
-      const dailyConnections = aggregateDelayConnections(trips);
+    if (delayDataset?.connectionsByDate[dateStr]) {
+      const dailyConnections = delayDataset.connectionsByDate[dateStr];
       const visibleConnections = dailyConnections.filter(
         (c) =>
           visibleStationNames.has(c.source.name) &&
@@ -997,7 +1049,8 @@ export async function appendWeatherOverlay(
   let currentVisibleStations: Station[] = [];
   let currentVisibleStationNames: Set<string> = new Set();
   let currentFocusedState: string | null = null;
-  let currentDailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+  let currentDelayDataset: DelayRangeDataset | null = null;
+  let currentDataSignature = "";
 
   const chartTooltip = d3
     .select(document.createElement("div"))
@@ -1032,6 +1085,7 @@ export async function appendWeatherOverlay(
   const timelineClipId = "weather-timeline-clip";
   let visibleTimelineDomain: TimeDomain | null = null;
   let timelineZoomTransform = d3.zoomIdentity;
+  let updateTimelineSelection = () => {};
   const impactZoomTransforms = new Map<WeatherImpactMode, d3.ZoomTransform>();
 
   const updateLegendHTML = (container: HTMLDivElement) => {
@@ -1266,17 +1320,17 @@ export async function appendWeatherOverlay(
   };
 
   const weatherImpactTrips = (hours: WeatherHour[]) => {
-    if (!currentDailyDelayTrips) {
+    if (!currentDelayDataset) {
       return [];
     }
 
     if (impactAggregate) {
-      return Object.values(currentDailyDelayTrips).flat();
+      return currentDelayDataset.rangeTrips;
     }
 
     const date = hours[0] ? dayKey(hours[0].time) : null;
 
-    return date ? (currentDailyDelayTrips[date] ?? []) : [];
+    return date ? (currentDelayDataset.tripsByDate[date] ?? []) : [];
   };
 
   const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1494,7 +1548,7 @@ export async function appendWeatherOverlay(
 
     if (
       !activeDataset ||
-      !currentDailyDelayTrips ||
+      !currentDelayDataset ||
       currentVisibleStations.length === 0
     ) {
       return dailyData;
@@ -1504,7 +1558,7 @@ export async function appendWeatherOverlay(
       currentVisibleStations.map((station) => station.eva),
     );
 
-    Object.entries(currentDailyDelayTrips).forEach(([date, trips]) => {
+    Object.entries(currentDelayDataset.tripsByDate).forEach(([date, trips]) => {
       const weekdayIndex = weekdayIndexForDateKey(date);
 
       if (weekdayIndex === null) {
@@ -3174,7 +3228,7 @@ export async function appendWeatherOverlay(
       activeDataset,
       currentVisibleStationNames,
       currentFocusedState,
-      currentDailyDelayTrips,
+      currentDelayDataset,
     );
 
     if (chartData.length === 0) {
@@ -3482,101 +3536,145 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("class", "weather-timeline-plot")
       .attr("clip-path", `url(#${timelineClipId})`);
-    const barG = plotG.append("g").attr("class", "delays-bars");
-    const linesG = plotG.append("g").attr("class", "weather-lines");
-    const pointsG = plotG.append("g").attr("class", "weather-points");
+    const timelineCanvas = document.createElementNS(
+      "http://www.w3.org/1999/xhtml",
+      "canvas",
+    ) as HTMLCanvasElement;
+    const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    timelineCanvas.className = "weather-timeline-canvas";
+    timelineCanvas.width = Math.ceil(innerWidth * pixelRatio);
+    timelineCanvas.height = Math.ceil(innerHeight * pixelRatio);
+    timelineCanvas.style.width = `${innerWidth}px`;
+    timelineCanvas.style.height = `${innerHeight}px`;
+    timelineCanvas.style.display = "block";
+    timelineCanvas.style.pointerEvents = "none";
+    plotG
+      .append("foreignObject")
+      .attr("width", innerWidth)
+      .attr("height", innerHeight)
+      .attr("pointer-events", "none")
+      .node()
+      ?.appendChild(timelineCanvas);
 
-    const countBars = barG
-      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-count-bar")
-      .data(
-        chartData.filter((d) => d.delaysCount > 0),
-        (d) => `${d.index}`,
-      )
-      .join("rect")
-      .attr("class", (d) => `delay-bar delay-count-bar day-${d.index}`)
-      .attr("y", (d) => yScaleCount(d.delaysCount))
-      .attr("height", (d) =>
-        Math.max(0, innerHeight - yScaleCount(d.delaysCount)),
-      )
-      .attr("fill", WEATHER_TIMELINE_COLORS.delayCount)
-      .attr("rx", 1)
-      .attr("opacity", 0.7);
+    const drawTimelineSeries = (highlightedIndex: number | null) => {
+      const context = timelineCanvas.getContext("2d");
 
-    const delayBars = barG
-      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-avg-bar")
-      .data(
-        chartData.filter((d) => d.avgDelayMin > 0),
-        (d) => `${d.index}`,
-      )
-      .join("rect")
-      .attr("class", (d) => `delay-bar delay-avg-bar day-${d.index}`)
-      .attr("y", (d) => yScaleDelay(d.avgDelayMin))
-      .attr("height", (d) =>
-        Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)),
-      )
-      .attr("fill", WEATHER_TIMELINE_COLORS.avgDelay)
-      .attr("rx", 1)
-      .attr("opacity", 0.7);
+      if (!context) {
+        return;
+      }
 
-    const lineTemp = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.temp))
-      .x((d) => xScale(d.time))
-      .y((d) => yScaleTemp(d.temp));
-    const linePrecip = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.precip))
-      .x((d) => xScale(d.time))
-      .y((d) => yScalePrecip(d.precip));
-    const lineSnow = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.snow))
-      .x((d) => xScale(d.time))
-      .y((d) => yScaleSnow(d.snow));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, innerWidth, innerHeight);
+      const barWidth = Math.max(
+        3,
+        Math.min(
+          18,
+          (innerWidth / chartData.length) * timelineZoomTransform.k * 0.18,
+        ),
+      );
+      const drawBar = (
+        x: number,
+        y: number,
+        height: number,
+        color: string,
+        opacity: number,
+      ) => {
+        context.globalAlpha = opacity;
+        context.fillStyle = color;
+        context.fillRect(x, y, Math.max(1, barWidth - 1), height);
+      };
 
-    const precipLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.precipitation)
-      .attr("stroke-width", 1.8);
-    const snowLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.snow_depth)
-      .attr("stroke-width", 1.8);
-    const tempLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.temperature_2m)
-      .attr("stroke-width", 1.8);
+      chartData.forEach((datum) => {
+        const opacity =
+          highlightedIndex === null
+            ? 0.7
+            : highlightedIndex === datum.index
+              ? 1
+              : 0.2;
+        const x = xScale(datum.time);
 
-    const precipPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.precip-point")
-      .data(chartData.filter((d) => Number.isFinite(d.precip)))
-      .join("circle")
-      .attr("class", "precip-point")
-      .attr("cy", (d) => yScalePrecip(d.precip))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.precipitation);
-    const snowPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.snow-point")
-      .data(chartData.filter((d) => Number.isFinite(d.snow)))
-      .join("circle")
-      .attr("class", "snow-point")
-      .attr("cy", (d) => yScaleSnow(d.snow))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.snow_depth);
-    const tempPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.temp-point")
-      .data(chartData.filter((d) => Number.isFinite(d.temp)))
-      .join("circle")
-      .attr("class", "temp-point")
-      .attr("cy", (d) => yScaleTemp(d.temp))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.temperature_2m);
+        if (datum.delaysCount > 0) {
+          const y = yScaleCount(datum.delaysCount);
+          drawBar(
+            x - barWidth,
+            y,
+            Math.max(0, innerHeight - y),
+            WEATHER_TIMELINE_COLORS.delayCount,
+            opacity,
+          );
+        }
+
+        if (datum.avgDelayMin > 0) {
+          const y = yScaleDelay(datum.avgDelayMin);
+          drawBar(
+            x,
+            y,
+            Math.max(0, innerHeight - y),
+            WEATHER_TIMELINE_COLORS.avgDelay,
+            opacity,
+          );
+        }
+      });
+
+      context.globalAlpha = 1;
+      const drawLineAndPoints = (
+        value: (datum: WeatherChartDatum) => number,
+        scale: d3.ScaleLinear<number, number>,
+        color: string,
+      ) => {
+        context.beginPath();
+        let drawing = false;
+        chartData.forEach((datum) => {
+          const currentValue = value(datum);
+
+          if (!Number.isFinite(currentValue)) {
+            drawing = false;
+            return;
+          }
+
+          const x = xScale(datum.time);
+          const y = scale(currentValue);
+
+          if (drawing) {
+            context.lineTo(x, y);
+          } else {
+            context.moveTo(x, y);
+            drawing = true;
+          }
+        });
+        context.strokeStyle = color;
+        context.lineWidth = 1.8;
+        context.stroke();
+        context.fillStyle = color;
+        chartData.forEach((datum) => {
+          const currentValue = value(datum);
+
+          if (!Number.isFinite(currentValue)) {
+            return;
+          }
+
+          context.beginPath();
+          context.arc(xScale(datum.time), scale(currentValue), 3.2, 0, Math.PI * 2);
+          context.fill();
+        });
+      };
+
+      drawLineAndPoints(
+        (datum) => datum.precip,
+        yScalePrecip,
+        WEATHER_TIMELINE_COLORS.precipitation,
+      );
+      drawLineAndPoints(
+        (datum) => datum.snow,
+        yScaleSnow,
+        WEATHER_TIMELINE_COLORS.snow_depth,
+      );
+      drawLineAndPoints(
+        (datum) => datum.temp,
+        yScaleTemp,
+        WEATHER_TIMELINE_COLORS.temperature_2m,
+      );
+    };
 
     const selectedLine = plotG
       .append("line")
@@ -3628,6 +3726,9 @@ export async function appendWeatherOverlay(
       .attr("pointer-events", "all");
 
     let currentHoverIndex: number | null = null;
+    let highlightedBarIndex: number | null = null;
+    let pointerMoveFrame: number | null = null;
+    let pendingPointerX = 0;
     let pointerStart: [number, number] | null = null;
     let pointerMoved = false;
 
@@ -3640,7 +3741,8 @@ export async function appendWeatherOverlay(
     });
 
     const restoreBarOpacity = () => {
-      chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
+      highlightedBarIndex = null;
+      drawTimelineSeries(null);
     };
 
     const hideHoverState = () => {
@@ -3651,18 +3753,17 @@ export async function appendWeatherOverlay(
       restoreBarOpacity();
     };
 
+    const timelineBisector = d3.bisector<WeatherChartDatum, Date>(
+      (datum) => datum.time,
+    ).center;
     const closestIndexForX = (mouseX: number) => {
-      let closestIndex = 0;
-      let minDistance = Number.POSITIVE_INFINITY;
-      chartData.forEach((d, i) => {
-        const distance = Math.abs(xScale(d.time) - mouseX);
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = i;
-        }
-      });
-
-      return closestIndex;
+      return Math.max(
+        0,
+        Math.min(
+          chartData.length - 1,
+          timelineBisector(chartData, xScale.invert(mouseX)),
+        ),
+      );
     };
 
     const updateHoverMarkers = (index: number) => {
@@ -3685,8 +3786,9 @@ export async function appendWeatherOverlay(
         .style("display", Number.isFinite(d.snow) ? "" : "none");
 
       hoverCirclesG.style("display", "block");
-      chartSvg.selectAll(".delay-bar").attr("opacity", 0.2);
-      chartSvg.selectAll(`.day-${d.index}`).attr("opacity", 1.0);
+
+      highlightedBarIndex = d.index;
+      drawTimelineSeries(highlightedBarIndex);
     };
 
     const showChartTooltip = (d: WeatherChartDatum) => {
@@ -3730,6 +3832,23 @@ export async function appendWeatherOverlay(
         .style("transform", "translate(-50%, -100%)");
     };
 
+    const syncSelectedLine = () => {
+      if (
+        selectedHourIndex !== null &&
+        selectedHourIndex >= 0 &&
+        selectedHourIndex < chartData.length
+      ) {
+        const selectedX = xScale(chartData[selectedHourIndex].time);
+        selectedLine
+          .attr("x1", selectedX)
+          .attr("x2", selectedX)
+          .style("display", "block");
+      } else {
+        selectedLine.style("display", "none");
+      }
+    };
+    updateTimelineSelection = syncSelectedLine;
+
     const renderZoomedChart = (
       nextXScale: d3.ScaleTime<number, number>,
       transform: d3.ZoomTransform,
@@ -3766,38 +3885,9 @@ export async function appendWeatherOverlay(
             .style("font-size", "10px"),
         );
 
-      const barWidth = Math.max(
-        3,
-        Math.min(18, (innerWidth / chartData.length) * transform.k * 0.18),
-      );
+      drawTimelineSeries(highlightedBarIndex);
 
-      countBars
-        .attr("x", (d) => xScale(d.time) - barWidth)
-        .attr("width", Math.max(1, barWidth - 1));
-      delayBars
-        .attr("x", (d) => xScale(d.time))
-        .attr("width", Math.max(1, barWidth - 1));
-
-      precipLine.attr("d", linePrecip);
-      snowLine.attr("d", lineSnow);
-      tempLine.attr("d", lineTemp);
-      precipPoints.attr("cx", (d) => xScale(d.time));
-      snowPoints.attr("cx", (d) => xScale(d.time));
-      tempPoints.attr("cx", (d) => xScale(d.time));
-
-      if (
-        selectedHourIndex !== null &&
-        selectedHourIndex >= 0 &&
-        selectedHourIndex < chartData.length
-      ) {
-        const selX = xScale(chartData[selectedHourIndex].time);
-        selectedLine
-          .attr("x1", selX)
-          .attr("x2", selX)
-          .style("display", "block");
-      } else {
-        selectedLine.style("display", "none");
-      }
+      syncSelectedLine();
 
       if (currentHoverIndex !== null) {
         updateHoverMarkers(currentHoverIndex);
@@ -3805,6 +3895,8 @@ export async function appendWeatherOverlay(
       }
     };
 
+    let zoomRenderFrame: number | null = null;
+    let pendingZoomTransform = timelineZoomTransform;
     const zoomBehavior = d3
       .zoom<SVGRectElement, unknown>()
       .extent([
@@ -3821,10 +3913,17 @@ export async function appendWeatherOverlay(
         hideHoverState();
       })
       .on("zoom", (event) => {
-        renderZoomedChart(
-          event.transform.rescaleX(baseXScale),
-          event.transform,
-        );
+        pendingZoomTransform = event.transform;
+
+        if (zoomRenderFrame === null) {
+          zoomRenderFrame = window.requestAnimationFrame(() => {
+            zoomRenderFrame = null;
+            renderZoomedChart(
+              pendingZoomTransform.rescaleX(baseXScale),
+              pendingZoomTransform,
+            );
+          });
+        }
       })
       .on("end", () => {
         captureRect.classed("is-panning", false);
@@ -3850,21 +3949,30 @@ export async function appendWeatherOverlay(
           return;
         }
 
-        const [mouseX] = d3.pointer(event, this);
-        const closestIndex = closestIndexForX(mouseX);
+        [pendingPointerX] = d3.pointer(event, this);
 
-        if (closestIndex !== currentHoverIndex) {
-          currentHoverIndex = closestIndex;
-          updateHoverMarkers(closestIndex);
-          previewHour(closestIndex);
+        if (pointerMoveFrame === null) {
+          pointerMoveFrame = window.requestAnimationFrame(() => {
+            pointerMoveFrame = null;
+            const closestIndex = closestIndexForX(pendingPointerX);
+
+            if (closestIndex !== currentHoverIndex) {
+              currentHoverIndex = closestIndex;
+              updateHoverMarkers(closestIndex);
+              previewHour(closestIndex);
+              showChartTooltip(chartData[closestIndex]);
+            }
+          });
         }
-
-        showChartTooltip(chartData[closestIndex]);
       })
       .on("pointerup", () => {
         pointerStart = null;
       })
       .on("pointerleave", () => {
+        if (pointerMoveFrame !== null) {
+          window.cancelAnimationFrame(pointerMoveFrame);
+          pointerMoveFrame = null;
+        }
         pointerStart = null;
         pointerMoved = false;
         hideHoverState();
@@ -3954,9 +4062,32 @@ export async function appendWeatherOverlay(
     .attr("fill", "transparent")
     .attr("pointer-events", "all");
 
+  const rasterCanvas = document.createElementNS(
+    "http://www.w3.org/1999/xhtml",
+    "canvas",
+  ) as HTMLCanvasElement;
+  rasterCanvas.className = "weather-cell-canvas";
+  rasterCanvas.style.width = `${WIDTH}px`;
+  rasterCanvas.style.height = `${HEIGHT}px`;
+  rasterCanvas.style.display = "block";
+  rasterCanvas.style.pointerEvents = "none";
+  rasterCanvas.style.imageRendering = "pixelated";
+  layer
+    .append("foreignObject")
+    .attr("class", "weather-cell-raster")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", WIDTH)
+    .attr("height", HEIGHT)
+    .attr("pointer-events", "none")
+    .node()
+    ?.appendChild(rasterCanvas);
+
   const overlay: WeatherOverlay = {
     layer,
+    rasterCanvas,
     currentCells: [],
+    currentCellsByKey: new Map(),
     currentCellColors: new Map(),
     impactPanel,
     impactVisualizationContainer: scatterContainer,
@@ -4046,7 +4177,9 @@ export async function appendWeatherOverlay(
     renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
     dispatchWeatherDatePreview(activeDataset.hours[index].time);
-    drawImpactVisualization();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
   const commitHour = (index: number) => {
@@ -4070,11 +4203,20 @@ export async function appendWeatherOverlay(
       dispatchSelectedDateChange(activeRange, hour.time);
     }
 
-    drawTimelineChart();
-    drawImpactVisualization();
+    updateTimelineSelection();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
+  let rulerPreviewFrame: number | null = null;
+  let pendingRulerPreviewIndex = 0;
   const restoreSelectedHour = () => {
+    if (rulerPreviewFrame !== null) {
+      window.cancelAnimationFrame(rulerPreviewFrame);
+      rulerPreviewFrame = null;
+    }
+
     if (!activeDataset || previewHourIndex === null) {
       return;
     }
@@ -4086,8 +4228,9 @@ export async function appendWeatherOverlay(
     renderedHourIndex = restoreIndex;
     dispatchWeatherDatePreview(null);
 
-    drawTimelineChart();
-    drawImpactVisualization();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
   const previewFromPointer = (event: MouseEvent) => {
@@ -4095,9 +4238,18 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    previewHour(
-      hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours),
+    pendingRulerPreviewIndex = hourIndexFromPointer(
+      event,
+      controls.stepMarks,
+      activeDataset.hours,
     );
+
+    if (rulerPreviewFrame === null) {
+      rulerPreviewFrame = window.requestAnimationFrame(() => {
+        rulerPreviewFrame = null;
+        previewHour(pendingRulerPreviewIndex);
+      });
+    }
   };
 
   const restoreWhenPointerLeavesRuler = (event: MouseEvent) => {
@@ -4208,13 +4360,7 @@ export async function appendWeatherOverlay(
       return overlay.currentCellColors.get(`${cellX},${cellY}`) ?? null;
     },
     showTooltipAtPoint: (event, [x, y], geographicName) => {
-      const cell = overlay.currentCells.find(
-        (candidate) =>
-          x >= candidate.x &&
-          x < candidate.x + candidate.size &&
-          y >= candidate.y &&
-          y < candidate.y + candidate.size,
-      );
+      const cell = weatherCellAtPoint(overlay, x, y);
 
       if (
         !cell ||
@@ -4251,13 +4397,26 @@ export async function appendWeatherOverlay(
     setHoveredStation: (stationEva) => {
       setImpactStationHighlight(stationEva);
     },
-    updateData: (visibleStations, focusedState, dailyDelayTrips) => {
+    updateData: (visibleStations, focusedState, delayDataset) => {
+      const nextSignature = `${focusedState ?? ""}|${visibleStations
+        .map((station) => station.eva)
+        .sort((left, right) => left - right)
+        .join(",")}`;
+      const dataChanged =
+        currentDataSignature !== nextSignature ||
+        currentDelayDataset !== delayDataset;
+
+      if (!dataChanged) {
+        return;
+      }
+
+      currentDataSignature = nextSignature;
       currentVisibleStations = visibleStations;
       currentVisibleStationNames = new Set(
         visibleStations.map((station) => station.name),
       );
       currentFocusedState = focusedState;
-      currentDailyDelayTrips = dailyDelayTrips;
+      currentDelayDataset = delayDataset;
       drawTimelineChart();
       drawImpactVisualization();
     },
