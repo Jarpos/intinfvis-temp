@@ -8,14 +8,20 @@ import {
   appendTrainStations,
   localStations,
   icStations,
-  loadDelayTripsPerDay,
-  aggregateDelayConnections,
-  buildStationDelayImpactStats,
+  loadDelayRangeDataset,
 } from "./data/bahn";
-import type { Connection, DelayDateRange, Station, DelayTrip } from "./data/bahn";
+import type {
+  Connection,
+  DelayDateRange,
+  DelayRangeDataset,
+  Station,
+} from "./data/bahn";
 import { appendGermany, geojson, projection } from "./data/geo";
 import { HEIGHT, WIDTH, map_svg, tooltip } from "./config";
-import { appendWeatherOverlay } from "./weatherOverlay";
+import {
+  appendWeatherOverlay,
+  WEATHER_OVERLAY_RENDER_EVENT,
+} from "./weatherOverlay";
 import {
   DEFAULT_DATE_RANGE,
   SELECTED_DATE_CHANGE_EVENT,
@@ -32,10 +38,11 @@ let currentZoomTransform = d3.zoomIdentity;
 let focusedState: string | null = null;
 const focusedStateListeners = new Set<(state: string | null) => void>();
 let isClickFocusing = false;
+let isLayoutRecentering = false;
 let lastPointer: [number, number] | null = null;
 let zoom: d3.ZoomBehavior<SVGSVGElement, undefined>;
 let trainConnections: Connection[] = [];
-let dailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+let delayRangeDataset: DelayRangeDataset | null = null;
 let activeDelayDate: string | null = null;
 let previewDelayDate: string | null = null;
 let trainDelayRequestKey = "";
@@ -94,11 +101,21 @@ function regionKey(state?: string | null, region?: string | null) {
   return state && region ? `${state}|${region}` : null;
 }
 
-function stateName(feature: GeoJSON.Feature) {
+function optionalStateName(feature: GeoJSON.Feature) {
   return (
     (feature.properties as { NAME_1?: string; name?: string } | null)?.NAME_1 ??
-    (feature.properties as { NAME_1?: string; name?: string } | null)?.name ??
-    "Unknown"
+    (feature.properties as { NAME_1?: string; name?: string } | null)?.name
+  );
+}
+
+function stateName(feature: GeoJSON.Feature) {
+  return optionalStateName(feature) ?? "Unknown";
+}
+
+function regionName(feature: GeoJSON.Feature) {
+  return (
+    (feature.properties as { NAME_2?: string } | null)?.NAME_2 ??
+    optionalStateName(feature)
   );
 }
 
@@ -383,7 +400,8 @@ stateHoverAreas
   })
   .on("mousemove", (event, d) => {
     const point = d3.pointer(event, g.node()) as [number, number];
-    weatherOverlay.showTooltipAtPoint(event, point);
+    const geographicName = focusedState ? regionName(d) : stateName(d);
+    weatherOverlay.showTooltipAtPoint(event, point, geographicName);
   })
   .on("click", (event, d) => {
     event.stopPropagation();
@@ -409,6 +427,10 @@ stateHoverAreas
 const trainLinesLayer = g.append("g");
 trainStationsLayer = g.append("g");
 let trainNetworkRenderFrame = 0;
+
+document.addEventListener(WEATHER_OVERLAY_RENDER_EVENT, () => {
+  scheduleTrainNetworkRender();
+});
 
 function featuresForState(state: string) {
   return geojson.features.filter((feature) => stateName(feature) === state);
@@ -499,7 +521,7 @@ function focusState(state: string | null, zoomToState = false) {
         focusedState = state;
         isClickFocusing = false;
         updateMapVisibility();
-        renderTrainNetwork();
+        scheduleTrainNetworkRender();
       });
   } else {
     isClickFocusing = false;
@@ -546,8 +568,46 @@ function refitMap(transition = false) {
   }
 }
 
+function recenterMapPreservingZoom(transition = false) {
+  if (!zoom) {
+    return;
+  }
+
+  const target = focusedState
+    ? ({
+        type: "FeatureCollection",
+        features: featuresForState(focusedState),
+      } as GeoJSON.FeatureCollection)
+    : geojson;
+  const [[x0, y0], [x1, y1]] = geoPath.bounds(target);
+  const focusRect = getMapFocusRect();
+  const scale = currentZoomTransform.k;
+  const nextTransform = d3.zoomIdentity
+    .translate(
+      focusRect.centerX - (scale * (x0 + x1)) / 2,
+      focusRect.centerY - (scale * (y0 + y1)) / 2,
+    )
+    .scale(scale);
+
+  map_svg.interrupt();
+  isLayoutRecentering = true;
+
+  if (transition) {
+    map_svg
+      .transition()
+      .duration(350)
+      .call(zoom.transform, nextTransform)
+      .on("end interrupt", () => {
+        isLayoutRecentering = false;
+      });
+  } else {
+    map_svg.call(zoom.transform, nextTransform);
+    isLayoutRecentering = false;
+  }
+}
+
 document.addEventListener("weather-impact-layout-change", () => {
-  window.requestAnimationFrame(() => refitMap(true));
+  window.requestAnimationFrame(() => recenterMapPreservingZoom(true));
 });
 
 function stateAtViewportCenter() {
@@ -638,19 +698,18 @@ function requestTrainDelayConnections() {
 
   trainDelayRequestKey = requestKey;
   trainConnections = [];
-  dailyDelayTrips = null;
+  delayRangeDataset = null;
 
   const requestToken = ++trainDelayLoadToken;
 
-  loadDelayTripsPerDay(selectedDelayRange, regionNames)
-    .then((tripsPerDay) => {
+  loadDelayRangeDataset(selectedDelayRange, regionNames)
+    .then((dataset) => {
       if (requestToken !== trainDelayLoadToken) {
         return;
       }
 
-      dailyDelayTrips = tripsPerDay;
-      const allTrips = Object.values(tripsPerDay).flat();
-      trainConnections = aggregateDelayConnections(allTrips);
+      delayRangeDataset = dataset;
+      trainConnections = dataset.rangeConnections;
       renderTrainNetwork();
     })
     .catch((error) => {
@@ -726,48 +785,40 @@ function stationDelayStatsForEva(
 }
 
 function buildStationDelayStats(
-  trips: DelayTrip[],
+  connections: Connection[],
   visibleStations: Station[],
 ) {
   const statsByEva = new Map<number, StationDelayStats>();
-  const incomingStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "incoming",
+  const visibleStationEvas = new Set(
+    visibleStations.map((station) => station.eva),
   );
-  const outgoingStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "outgoing",
-  );
-  const totalStats = buildStationDelayImpactStats(
-    trips,
-    visibleStations,
-    "both",
-  );
+  const add = (
+    eva: number,
+    direction: keyof StationDelayStats,
+    connection: Connection,
+  ) => {
+    const stats = stationDelayStatsForEva(statsByEva, eva)[direction];
+    stats.delayCount += connection.delayCount;
+    stats.weightedDelay += connection.delay * connection.delayCount;
+  };
 
-  visibleStations.forEach((station) => {
-    const sourceStats = stationDelayStatsForEva(
-      statsByEva,
-      station.eva,
-    );
-    const total = totalStats.get(station.eva);
-    const incoming = incomingStats.get(station.eva);
-    const outgoing = outgoingStats.get(station.eva);
+  connections.forEach((connection) => {
+    const sourceVisible = visibleStationEvas.has(connection.source.eva);
+    const targetVisible = visibleStationEvas.has(connection.target.eva);
+    const isSelfConnection =
+      connection.source.eva === connection.target.eva;
 
-    if (total) {
-      sourceStats.total.delayCount = total.delayCount;
-      sourceStats.total.weightedDelay = total.weightedDelay;
+    if (sourceVisible) {
+      add(connection.source.eva, "total", connection);
+
+      if (!isSelfConnection) {
+        add(connection.source.eva, "outgoing", connection);
+      }
     }
 
-    if (incoming) {
-      sourceStats.incoming.delayCount = incoming.delayCount;
-      sourceStats.incoming.weightedDelay = incoming.weightedDelay;
-    }
-
-    if (outgoing) {
-      sourceStats.outgoing.delayCount = outgoing.delayCount;
-      sourceStats.outgoing.weightedDelay = outgoing.weightedDelay;
+    if (targetVisible && !isSelfConnection) {
+      add(connection.target.eva, "total", connection);
+      add(connection.target.eva, "incoming", connection);
     }
   });
 
@@ -885,19 +936,23 @@ function renderTrainNetwork() {
 
   const dateToRender = previewDelayDate || activeDelayDate;
   let displayConnections = trainConnections;
-  let displayTrips = dailyDelayTrips ? Object.values(dailyDelayTrips).flat() : [];
-  if (dateToRender && dailyDelayTrips) {
-    displayTrips = dailyDelayTrips[dateToRender] ?? [];
-    displayConnections = aggregateDelayConnections(
-      displayTrips,
-    );
+  let displayTrips = delayRangeDataset?.rangeTrips ?? [];
+  if (dateToRender && delayRangeDataset) {
+    displayTrips = delayRangeDataset.tripsByDate[dateToRender] ?? [];
+    displayConnections =
+      delayRangeDataset.connectionsByDate[dateToRender] ?? [];
   }
   const stationDelayStatsByEva = buildStationDelayStats(
-    displayTrips,
+    displayConnections,
     visibleStations,
   );
 
-  appendTrainStrecken(trainLinesLayer, displayConnections, visibleStationNames)
+  appendTrainStrecken(
+    trainLinesLayer,
+    displayConnections,
+    visibleStationNames,
+    weatherOverlay.colorAtPoint,
+  )
     .on("mouseenter", function (event, d) {
       d3.select(this).classed("is-section-delay-hovered", true).raise();
       showSectionDelayTooltip(event, d);
@@ -945,7 +1000,7 @@ function renderTrainNetwork() {
     });
 
   if (!previewDelayDate) {
-    weatherOverlay.updateData(visibleStations, focusedState, dailyDelayTrips);
+    weatherOverlay.updateData(visibleStations, focusedState, delayRangeDataset);
   }
 }
 
@@ -1018,12 +1073,50 @@ function setupStationFilterPanel() {
     );
   }
 
+  function formatStationSelectionCount(stations: Station[]) {
+    const selectedCount = stations.reduce(
+      (count, station) =>
+        count + Number(selectedStationNames.has(station.name)),
+      0,
+    );
+    const totalCount = stations.length;
+    const formattedTotal = totalCount.toLocaleString("de-DE");
+
+    if (selectedCount === totalCount) {
+      return formattedTotal;
+    }
+
+    return `${selectedCount.toLocaleString("de-DE")} / ${formattedTotal}`;
+  }
+
   function stationsForCurrentRegion() {
     return localStations.filter(
       (station) =>
         stationState(station) === selectedState &&
         stationRegion(station) === selectedRegion,
     );
+  }
+
+  function stationsForCurrentListing() {
+    const query = searchInput.value.trim().toLowerCase();
+
+    if (query) {
+      return localStations.filter((station) =>
+        station.name.toLowerCase().includes(query),
+      );
+    }
+
+    if (selectedRegion) {
+      return stationsForCurrentRegion();
+    }
+
+    if (selectedState) {
+      return localStations.filter(
+        (station) => stationState(station) === selectedState,
+      );
+    }
+
+    return localStations;
   }
 
   function syncListToFocusedState(state: string | null) {
@@ -1038,7 +1131,7 @@ function setupStationFilterPanel() {
 
   function makeDrillRow(
     label: string,
-    count: number,
+    stations: Station[],
     onClick: () => void,
     secondaryLabel?: string,
   ) {
@@ -1068,7 +1161,7 @@ function setupStationFilterPanel() {
     const badge = document.createElement("span");
     badge.className =
       "rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500";
-    badge.textContent = count.toLocaleString("de-DE");
+    badge.textContent = formatStationSelectionCount(stations);
 
     button.append(textWrap, badge);
     return button;
@@ -1134,7 +1227,7 @@ function setupStationFilterPanel() {
   function renderStationList() {
     const query = searchInput.value.trim().toLowerCase();
 
-    countText.textContent = `${selectedStationNames.size} of ${allStationNames.size} selected`;
+    countText.textContent = `${formatStationSelectionCount(localStations)} stations`;
     list.replaceChildren();
 
     if (query) {
@@ -1144,7 +1237,7 @@ function setupStationFilterPanel() {
         ),
       );
 
-      countText.textContent = `Search results - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+      countText.textContent = `Search results - ${formatStationSelectionCount(visibleStations)} stations`;
       visibleStations.forEach((station) =>
         appendStationCheckbox(station, true),
       );
@@ -1162,18 +1255,17 @@ function setupStationFilterPanel() {
     if (!selectedState) {
       const stateRows = sortByName(
         Array.from(
-          d3.rollup(
+          d3.group(
             localStations,
-            (stateStations) => stateStations.length,
             stationState,
           ),
-          ([name, count]) => ({ name, count }),
+          ([name, stations]) => ({ name, stations }),
         ),
       );
 
-      stateRows.forEach(({ name, count }) => {
+      stateRows.forEach(({ name, stations }) => {
         list.append(
-          makeDrillRow(name, count, () => {
+          makeDrillRow(name, stations, () => {
             focusState(name, true);
           }),
         );
@@ -1201,22 +1293,21 @@ function setupStationFilterPanel() {
       );
       const regionRows = sortByName(
         Array.from(
-          d3.rollup(
+          d3.group(
             stateStations,
-            (regionStations) => regionStations.length,
             stationRegion,
           ),
-          ([name, count]) => ({ name, count }),
+          ([name, stations]) => ({ name, stations }),
         ),
       );
 
-      countText.textContent = `${selectedState} - ${stateStations.length.toLocaleString("de-DE")} stations`;
+      countText.textContent = `${selectedState} - ${formatStationSelectionCount(stateStations)} stations`;
 
-      regionRows.forEach(({ name, count }) => {
+      regionRows.forEach(({ name, stations }) => {
         list.append(
           makeDrillRow(
             name,
-            count,
+            stations,
             () => {
               selectedRegion = name;
               renderStationList();
@@ -1245,7 +1336,7 @@ function setupStationFilterPanel() {
 
     const visibleStations = sortByName(stationsForCurrentRegion());
 
-    countText.textContent = `${selectedRegion}, ${selectedState} - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+    countText.textContent = `${selectedRegion}, ${selectedState} - ${formatStationSelectionCount(visibleStations)} stations`;
 
     visibleStations.forEach((station) => appendStationCheckbox(station));
 
@@ -1259,12 +1350,16 @@ function setupStationFilterPanel() {
 
   searchInput.addEventListener("input", renderStationList);
   selectAllButton.addEventListener("click", () => {
-    localStations.forEach((station) => selectedStationNames.add(station.name));
+    stationsForCurrentListing().forEach((station) =>
+      selectedStationNames.add(station.name),
+    );
     renderTrainNetwork();
     renderStationList();
   });
   clearButton.addEventListener("click", () => {
-    selectedStationNames.clear();
+    stationsForCurrentListing().forEach((station) =>
+      selectedStationNames.delete(station.name),
+    );
     renderTrainNetwork();
     renderStationList();
   });
@@ -1402,12 +1497,12 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
     if (nextFromDate && nextToDate) {
       setDateRange(nextFromDate, nextToDate);
 
-      if (source === "weather-timeline") {
+      if (source === "weather-timeline" || source === "holiday-calendar") {
         if (nextSelectedDate) {
           selectedDate = startOfDay(nextSelectedDate);
         }
         activeDelayDate = selected;
-        renderTrainNetwork();
+        scheduleTrainNetworkRender();
       } else {
         activeDelayDate = null;
         setTrainDelayRange({
@@ -1423,7 +1518,7 @@ function setupTimeRangePicker(initialRange: { from: Date; to: Date }) {
       .detail;
 
     previewDelayDate = selected;
-    renderTrainNetwork();
+    scheduleTrainNetworkRender();
   }) as EventListener);
 
   syncInputs();
@@ -1442,9 +1537,8 @@ zoom = d3
     currentZoomTransform = event.transform;
     g.attr("transform", currentZoomTransform.toString());
 
-    if (isClickFocusing) {
+    if (isClickFocusing || isLayoutRecentering) {
       updateMapVisibility();
-      scheduleTrainNetworkRender();
       return;
     }
 
@@ -1463,7 +1557,6 @@ zoom = d3
     }
 
     updateMapVisibility();
-    scheduleTrainNetworkRender();
   });
 map_svg.call(zoom);
 setupStationFilterPanel();

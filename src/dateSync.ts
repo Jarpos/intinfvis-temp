@@ -6,7 +6,10 @@ export const DEFAULT_DATE_RANGE = {
 export const SELECTED_DATE_CHANGE_EVENT = "selected-date-change";
 export const WEATHER_DATE_PREVIEW_EVENT = "weather-date-preview";
 
-export type SelectedDateChangeSource = "time-range" | "weather-timeline";
+export type SelectedDateChangeSource =
+  | "time-range"
+  | "weather-timeline"
+  | "holiday-calendar";
 
 export type SelectedDateChangeDetail = {
   from: string;

@@ -6,6 +6,7 @@
   "scripts": {
     "build": "webpack --mode=production --config-node-env=production",
     "build:dev": "webpack --mode=development",
+    "data:optimize": "python3 scripts/optimize_delay_data.py",
     "serve": "webpack serve",
     "watch": "webpack --watch"
   },

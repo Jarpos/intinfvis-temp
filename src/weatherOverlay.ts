@@ -15,7 +15,6 @@ import {
   displayedTemperature,
   interpolateWeatherValueAtCoordinate,
   loadHistoricalTemperatures,
-  temperatureBand,
   temperatureColor,
   toDateInputValue,
 } from "./data/weather";
@@ -28,16 +27,22 @@ import type {
 } from "./data/weather";
 import { geojson, projection } from "./data/geo";
 import {
-  aggregateDelayConnections,
   buildStationDelayAddedStats,
   buildStationDelayImpactStats,
 } from "./data/bahn";
 import type {
   DelayDirection,
+  DelayRangeDataset,
   DelayTrip,
   Station,
   StationDelayAddedStats,
 } from "./data/bahn";
+import {
+  buildHolidayCalendarCells,
+  holidayDateKey,
+  loadHolidayCalendarData,
+} from "./data/holidays";
+import type { HolidayCalendarData } from "./data/holidays";
 
 type WeatherOverlay = {
   layer: d3.Selection<SVGGElement, undefined, null, undefined>;
@@ -46,7 +51,10 @@ type WeatherOverlay = {
   sliderWrap: HTMLDivElement;
   stepMarks: HTMLDivElement;
   timeBubble: HTMLDivElement;
+  rasterCanvas: HTMLCanvasElement;
   currentCells: TemperatureCell[];
+  currentCellsByKey: Map<string, TemperatureCell>;
+  currentCellColors: Map<string, string>;
   chartContainer?: HTMLDivElement;
   legendContainer?: HTMLDivElement;
   impactPanel: HTMLDivElement;
@@ -59,7 +67,8 @@ type WeatherImpactMode =
   | "weather-impact"
   | "worst-best-stations"
   | "delay-duration-distribution"
-  | "weekdays-distribution";
+  | "weekdays-distribution"
+  | "holiday-impact";
 
 const WEATHER_TIMELINE_COLORS: Record<
   WeatherVariableKey | "delayCount" | "avgDelay",
@@ -73,15 +82,22 @@ const WEATHER_TIMELINE_COLORS: Record<
 };
 
 export type WeatherOverlayController = {
-  showTooltipAtPoint: (event: MouseEvent, point: [number, number]) => boolean;
+  colorAtPoint: (point: [number, number]) => string | null;
+  showTooltipAtPoint: (
+    event: MouseEvent,
+    point: [number, number],
+    geographicName?: string,
+  ) => boolean;
   hideTooltip: () => void;
   setHoveredStation: (stationEva: number | null) => void;
   updateData: (
     visibleStations: Station[],
     focusedState: string | null,
-    dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
+    delayDataset: DelayRangeDataset | null,
   ) => void;
 };
+
+export const WEATHER_OVERLAY_RENDER_EVENT = "weather-overlay-render";
 
 type WeatherOverlayOptions = {
   beginLoadingTask?: (message: string) => () => void;
@@ -233,6 +249,7 @@ function createLegend() {
         value: "weekdays-distribution",
         label: "Weekdays Distribution",
       },
+      { value: "holiday-impact", label: "Holiday Impact" },
     ],
     "none",
   );
@@ -315,6 +332,7 @@ function createLegend() {
     impactModeDropdown: impactModeDropdown.dropdown,
     directionDropdown: directionDropdown.dropdown,
     aggregateCheckbox,
+    impactControls,
     impactPanel,
     scatterContainer,
   };
@@ -429,25 +447,12 @@ function noonForDate(date: Date) {
   );
 }
 
-function closestIndexForDateLabel(hours: WeatherHour[], date: Date) {
-  const noon = noonForDate(date);
-  const candidates = hours
-    .map((hour, index) => ({ hour, index }))
-    .filter(({ hour }) => sameCalendarDate(hour.time, date));
-
-  return candidates.reduce(
-    (best, candidate) => {
-      const distance = Math.abs(candidate.hour.time.getTime() - noon.getTime());
-      return distance < best.distance
-        ? { index: candidate.index, distance }
-        : best;
-    },
-    { index: 0, distance: Number.POSITIVE_INFINITY },
-  ).index;
-}
-
 function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
   container.replaceChildren();
+  const labelsByDay = new Map<
+    string,
+    { date: Date; index: number; distance: number }
+  >();
 
   hours.forEach((hour, index) => {
     const tick = document.createElement("span");
@@ -463,14 +468,19 @@ function updateStepMarks(container: HTMLDivElement, hours: WeatherHour[]) {
     }
 
     container.append(tick);
+
+    const key = dayKey(hour.time);
+    const distance = Math.abs(
+      hour.time.getTime() - noonForDate(hour.time).getTime(),
+    );
+    const currentLabel = labelsByDay.get(key);
+
+    if (!currentLabel || distance < currentLabel.distance) {
+      labelsByDay.set(key, { date: hour.time, index, distance });
+    }
   });
 
-  const labelDates = Array.from(
-    new Map(hours.map((hour) => [dayKey(hour.time), hour.time])).values(),
-  );
-
-  labelDates.forEach((date) => {
-    const index = closestIndexForDateLabel(hours, date);
+  labelsByDay.forEach(({ date, index }) => {
     const hour = hours[index];
 
     const label = document.createElement("div");
@@ -526,6 +536,22 @@ function buildRenderableCells(
   index: number,
   variableKey: "temperature_2m" | "precipitation" | "snow_depth",
 ) {
+  let datasetCache = renderableCellsCache.get(dataset);
+
+  if (!datasetCache) {
+    datasetCache = new Map();
+    renderableCellsCache.set(dataset, datasetCache);
+  }
+
+  const cacheKey = `${index}|${variableKey}`;
+  const cachedCells = datasetCache.get(cacheKey);
+
+  if (cachedCells) {
+    datasetCache.delete(cacheKey);
+    datasetCache.set(cacheKey, cachedCells);
+    return cachedCells;
+  }
+
   const selectedCells = buildTemperatureCells(
     dataset,
     dataset.hours[index],
@@ -533,6 +559,8 @@ function buildRenderableCells(
   );
 
   if (selectedCells.length > 0) {
+    datasetCache.set(cacheKey, selectedCells);
+    trimRenderableCellCache(datasetCache);
     return selectedCells;
   }
 
@@ -550,12 +578,51 @@ function buildRenderableCells(
       );
 
       if (fallbackCells.length > 0) {
+        datasetCache.set(cacheKey, fallbackCells);
+        trimRenderableCellCache(datasetCache);
         return fallbackCells;
       }
     }
   }
 
   return selectedCells;
+}
+
+const renderableCellsCache = new WeakMap<
+  WeatherDataset,
+  Map<string, TemperatureCell[]>
+>();
+const MAX_RENDERABLE_CELL_CACHE_ENTRIES = 16;
+
+function trimRenderableCellCache(cache: Map<string, TemperatureCell[]>) {
+  while (cache.size > MAX_RENDERABLE_CELL_CACHE_ENTRIES) {
+    const oldestKey = cache.keys().next().value;
+
+    if (oldestKey === undefined) {
+      return;
+    }
+
+    cache.delete(oldestKey);
+  }
+}
+
+function weatherCellKey(x: number, y: number) {
+  return `${x},${y}`;
+}
+
+function weatherCellAtPoint(overlay: WeatherOverlay, x: number, y: number) {
+  const cellSize = overlay.currentCells[0]?.size;
+
+  if (!cellSize) {
+    return undefined;
+  }
+
+  return overlay.currentCellsByKey.get(
+    weatherCellKey(
+      Math.floor(x / cellSize) * cellSize,
+      Math.floor(y / cellSize) * cellSize,
+    ),
+  );
 }
 
 function renderHour(
@@ -571,6 +638,15 @@ function renderHour(
   const cells = buildRenderableCells(dataset, index, variableKey);
   const progress = hourPosition(index, dataset.hours);
   overlay.currentCells = cells;
+  overlay.currentCellsByKey = new Map(
+    cells.map((cell) => [weatherCellKey(cell.x, cell.y), cell]),
+  );
+  overlay.currentCellColors = new Map(
+    cells.map((cell) => [
+      weatherCellKey(cell.x, cell.y),
+      temperatureColor(cell.temperature),
+    ]),
+  );
   overlay.timeBubble.textContent = hour.time.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
@@ -580,20 +656,28 @@ function renderHour(
     "--weather-progress",
     `${progress}%`,
   );
+  const cellSize = cells[0]?.size ?? 1;
+  const canvasWidth = Math.ceil(WIDTH / cellSize);
+  const canvasHeight = Math.ceil(HEIGHT / cellSize);
+  const canvas = overlay.rasterCanvas;
 
-  overlay.layer
-    .selectAll<SVGRectElement, (typeof cells)[number]>("rect.weather-cell")
-    .data(cells)
-    .join("rect")
-    .attr("class", "weather-cell")
-    .attr("x", (d) => d.x)
-    .attr("y", (d) => d.y)
-    .attr("width", (d) => d.size)
-    .attr("height", (d) => d.size)
-    .attr("fill", (d) => temperatureColor(d.temperature))
-    .attr("data-temperature", (d) => d.rawValue.toFixed(1))
-    .attr("data-temperature-band", (d) => `${temperatureBand(d.temperature)}`)
-    .attr("opacity", 1);
+  if (canvas.width !== canvasWidth || canvas.height !== canvasHeight) {
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+  }
+
+  const context = canvas.getContext("2d", { alpha: true });
+
+  if (context) {
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
+    context.imageSmoothingEnabled = false;
+    cells.forEach((cell) => {
+      context.fillStyle = temperatureColor(cell.temperature);
+      context.fillRect(cell.x / cellSize, cell.y / cellSize, 1, 1);
+    });
+  }
+
+  document.dispatchEvent(new CustomEvent(WEATHER_OVERLAY_RENDER_EVENT));
 }
 
 function dispatchSelectedDateChange(
@@ -630,13 +714,7 @@ function bindTooltip(
   layer
     .on("mousemove", (event) => {
       const [x, y] = d3.pointer(event, layer.node());
-      const cell = overlay.currentCells.find(
-        (candidate) =>
-          x >= candidate.x &&
-          x < candidate.x + candidate.size &&
-          y >= candidate.y &&
-          y < candidate.y + candidate.size,
-      );
+      const cell = weatherCellAtPoint(overlay, x, y);
 
       if (
         cell &&
@@ -665,7 +743,7 @@ function getChartData(
   dataset: WeatherDataset,
   visibleStationNames: Set<string>,
   focusedState: string | null,
-  dailyDelayTrips: { [date: string]: DelayTrip[] } | null,
+  delayDataset: DelayRangeDataset | null,
 ) {
   let activePoints = dataset.points;
   if (focusedState) {
@@ -709,9 +787,8 @@ function getChartData(
     let delaysCount = 0;
     let avgDelayMin = 0;
 
-    if (dailyDelayTrips && dailyDelayTrips[dateStr]) {
-      const trips = dailyDelayTrips[dateStr];
-      const dailyConnections = aggregateDelayConnections(trips);
+    if (delayDataset?.connectionsByDate[dateStr]) {
+      const dailyConnections = delayDataset.connectionsByDate[dateStr];
       const visibleConnections = dailyConnections.filter(
         (c) =>
           visibleStationNames.has(c.source.name) &&
@@ -852,18 +929,35 @@ function timelineTickValues(
   }
 
   const minLabelSpacing = 82;
-  const step = Math.max(
-    1,
-    Math.ceil((ticks.length * minLabelSpacing) / innerWidth),
-  );
+  const selectedTicks = [ticks[0]];
 
-  if (step === 1) {
-    return ticks;
+  // Space labels by their rendered positions. A fixed index step can leave the
+  // final tick immediately beside the previous one when the day count is not a
+  // multiple of that step.
+  ticks.slice(1, -1).forEach((tick) => {
+    const previousTick = selectedTicks[selectedTicks.length - 1];
+    if (xScale(tick) - xScale(previousTick) >= minLabelSpacing) {
+      selectedTicks.push(tick);
+    }
+  });
+
+  const lastTick = ticks[ticks.length - 1];
+  while (
+    selectedTicks.length > 1 &&
+    xScale(lastTick) - xScale(selectedTicks[selectedTicks.length - 1]) <
+      minLabelSpacing
+  ) {
+    selectedTicks.pop();
   }
 
-  return ticks.filter(
-    (_, index) => index % step === 0 || index === ticks.length - 1,
-  );
+  if (
+    xScale(lastTick) - xScale(selectedTicks[selectedTicks.length - 1]) >=
+    minLabelSpacing
+  ) {
+    selectedTicks.push(lastTick);
+  }
+
+  return selectedTicks;
 }
 
 function formatTimelineTick(date: Date) {
@@ -882,6 +976,7 @@ export async function appendWeatherOverlay(
     impactModeDropdown,
     directionDropdown,
     aggregateCheckbox,
+    impactControls,
     impactPanel,
     scatterContainer,
   } = createLegend();
@@ -954,7 +1049,8 @@ export async function appendWeatherOverlay(
   let currentVisibleStations: Station[] = [];
   let currentVisibleStationNames: Set<string> = new Set();
   let currentFocusedState: string | null = null;
-  let currentDailyDelayTrips: { [date: string]: DelayTrip[] } | null = null;
+  let currentDelayDataset: DelayRangeDataset | null = null;
+  let currentDataSignature = "";
 
   const chartTooltip = d3
     .select(document.createElement("div"))
@@ -972,6 +1068,12 @@ export async function appendWeatherOverlay(
     to: DEFAULT_DATE_RANGE.to,
     selected: DEFAULT_DATE_RANGE.from,
   };
+  let holidayData: HolidayCalendarData | null = null;
+  let holidayDataKey: string | null = null;
+  let holidayDataLoading = false;
+  let holidayDataRequestId = 0;
+  let holidayDisplayMonth: Date | null = null;
+  let holidayDisplaySelectedKey: string | null = null;
   let activeDataset: WeatherDataset | null = null;
   let selectedHourIndex: number | null = 0;
   let committedRenderHourIndex = 0;
@@ -983,6 +1085,7 @@ export async function appendWeatherOverlay(
   const timelineClipId = "weather-timeline-clip";
   let visibleTimelineDomain: TimeDomain | null = null;
   let timelineZoomTransform = d3.zoomIdentity;
+  let updateTimelineSelection = () => {};
   const impactZoomTransforms = new Map<WeatherImpactMode, d3.ZoomTransform>();
 
   const updateLegendHTML = (container: HTMLDivElement) => {
@@ -1055,6 +1158,22 @@ export async function appendWeatherOverlay(
     avgDelayCount: number;
     avgDelayMin: number | null;
     weightedDelay: number;
+  };
+
+  type DailyDelayDatum = {
+    date: string;
+    weekdayIndex: number;
+    delayCount: number;
+    avgDelayMin: number | null;
+    weightedDelay: number;
+  };
+
+  type CalendarDelayComparison = {
+    actual: DailyDelayDatum;
+    weekdayAverage: WeekdayDistributionDatum;
+    normalizedDelayCount: number | null;
+    normalizedDelayTime: number | null;
+    normalizedAverage: number | null;
   };
 
   const delayDurationBinSizeMin = 1;
@@ -1201,17 +1320,17 @@ export async function appendWeatherOverlay(
   };
 
   const weatherImpactTrips = (hours: WeatherHour[]) => {
-    if (!currentDailyDelayTrips) {
+    if (!currentDelayDataset) {
       return [];
     }
 
     if (impactAggregate) {
-      return Object.values(currentDailyDelayTrips).flat();
+      return currentDelayDataset.rangeTrips;
     }
 
     const date = hours[0] ? dayKey(hours[0].time) : null;
 
-    return date ? (currentDailyDelayTrips[date] ?? []) : [];
+    return date ? (currentDelayDataset.tripsByDate[date] ?? []) : [];
   };
 
   const weekdayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1424,47 +1543,35 @@ export async function appendWeatherOverlay(
       };
     };
 
-  const getWeekdayDistributionData = (): WeekdayDistributionDatum[] => {
-    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
-      (label, index) => ({
-        index,
-        label,
-        dateCount: 0,
-        delayCount: 0,
-        avgDelayCount: 0,
-        avgDelayMin: null,
-        weightedDelay: 0,
-      }),
-    );
+  const getDailyDelayData = (): Map<string, DailyDelayDatum> => {
+    const dailyData = new Map<string, DailyDelayDatum>();
 
     if (
       !activeDataset ||
-      !currentDailyDelayTrips ||
+      !currentDelayDataset ||
       currentVisibleStations.length === 0
     ) {
-      return buckets;
+      return dailyData;
     }
 
-    const dailyDelayTrips = currentDailyDelayTrips;
     const visibleStationsByEva = new Set(
       currentVisibleStations.map((station) => station.eva),
     );
-    const selectedDates = Object.keys(dailyDelayTrips);
 
-    selectedDates.forEach((date) => {
+    Object.entries(currentDelayDataset.tripsByDate).forEach(([date, trips]) => {
       const weekdayIndex = weekdayIndexForDateKey(date);
-      const trips = dailyDelayTrips[date] ?? [];
 
       if (weekdayIndex === null) {
         return;
       }
 
-      const bucket = buckets[weekdayIndex];
-      bucket.dateCount += 1;
-
-      if (trips.length === 0) {
-        return;
-      }
+      const datum: DailyDelayDatum = {
+        date,
+        weekdayIndex,
+        delayCount: 0,
+        avgDelayMin: null,
+        weightedDelay: 0,
+      };
 
       trips.forEach((trip) => {
         const fromVisible = visibleStationsByEva.has(trip.from_stop_id);
@@ -1480,8 +1587,8 @@ export async function appendWeatherOverlay(
         }
 
         const addDelay = () => {
-          bucket.delayCount += count;
-          bucket.weightedDelay += trip.avg_delay * count;
+          datum.delayCount += count;
+          datum.weightedDelay += trip.avg_delay * count;
         };
 
         if (impactDirection === "both") {
@@ -1508,6 +1615,37 @@ export async function appendWeatherOverlay(
           addDelay();
         }
       });
+
+      datum.avgDelayMin =
+        datum.delayCount > 0
+          ? datum.weightedDelay / datum.delayCount / 60
+          : null;
+      dailyData.set(date, datum);
+    });
+
+    return dailyData;
+  };
+
+  const getWeekdayDistributionData = (
+    dailyData = getDailyDelayData(),
+  ): WeekdayDistributionDatum[] => {
+    const buckets: WeekdayDistributionDatum[] = weekdayLabels.map(
+      (label, index) => ({
+        index,
+        label,
+        dateCount: 0,
+        delayCount: 0,
+        avgDelayCount: 0,
+        avgDelayMin: null,
+        weightedDelay: 0,
+      }),
+    );
+
+    dailyData.forEach((datum) => {
+      const bucket = buckets[datum.weekdayIndex];
+      bucket.dateCount += 1;
+      bucket.delayCount += datum.delayCount;
+      bucket.weightedDelay += datum.weightedDelay;
     });
 
     buckets.forEach((bucket) => {
@@ -1525,7 +1663,9 @@ export async function appendWeatherOverlay(
   const setImpactMode = (mode: WeatherImpactMode) => {
     impactMode = mode;
     const isActive = impactMode !== "none";
+    const isHolidayImpact = impactMode === "holiday-impact";
     impactPanel.hidden = !isActive;
+    impactControls.hidden = isHolidayImpact;
     directionDropdown.hidden =
       impactMode !== "weather-impact" &&
       impactMode !== "delay-duration-distribution" &&
@@ -1546,11 +1686,13 @@ export async function appendWeatherOverlay(
       "is-weekday-distribution",
       impactMode === "weekdays-distribution",
     );
+    scatterContainer.classList.toggle("is-holiday-calendar", isHolidayImpact);
     document.body.classList.toggle("weather-impact-active", isActive);
     document.body.classList.toggle(
       "weather-best-worst-active",
       impactMode === "worst-best-stations",
     );
+    document.body.classList.toggle("weather-holiday-active", isHolidayImpact);
     options.onStationHoverChange?.(null);
     drawImpactVisualization();
     window.requestAnimationFrame(() => {
@@ -1790,11 +1932,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     chart
       .append("g")
@@ -1986,11 +2124,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     const xAxis = d3
       .axisTop(xScale)
@@ -2137,9 +2271,7 @@ export async function appendWeatherOverlay(
         .attr("width", (d) => Math.abs(xScale(d.delayAddedMin) - zeroX));
       stationLabels
         .attr("x", (d) => (d.delayAddedMin < 0 ? zeroX + 9 : zeroX - 9))
-        .attr("text-anchor", (d) =>
-          d.delayAddedMin < 0 ? "start" : "end",
-        );
+        .attr("text-anchor", (d) => (d.delayAddedMin < 0 ? "start" : "end"));
       valueLabels.attr("x", (d) =>
         d.delayAddedMin < 0
           ? xScale(d.delayAddedMin) - 7
@@ -2214,11 +2346,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     chart
       .append("g")
@@ -2430,8 +2558,7 @@ export async function appendWeatherOverlay(
       .domain([0, delayMax])
       .nice(isCompact ? 4 : 5)
       .range([innerHeight, 0]);
-    const xForDatum = (datum: WeekdayDistributionDatum) =>
-      xScale(datum.index);
+    const xForDatum = (datum: WeekdayDistributionDatum) => xScale(datum.index);
 
     const countLine = d3
       .line<WeekdayDistributionDatum>()
@@ -2459,11 +2586,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     const visibleWeekdayTicks = () =>
       data
@@ -2690,7 +2813,374 @@ export async function appendWeatherOverlay(
     );
   };
 
+  const requestHolidayData = () => {
+    const nextKey = currentFocusedState ?? "national";
+
+    if (holidayDataKey === nextKey) {
+      return;
+    }
+
+    holidayDataKey = nextKey;
+    holidayData = null;
+    holidayDataLoading = true;
+    const requestId = ++holidayDataRequestId;
+
+    void loadHolidayCalendarData(currentFocusedState).then((data) => {
+      if (requestId !== holidayDataRequestId || holidayDataKey !== nextKey) {
+        return;
+      }
+
+      holidayData = data;
+      holidayDataLoading = false;
+
+      if (impactMode === "holiday-impact") {
+        drawImpactVisualization();
+      }
+    });
+  };
+
+  const drawHolidayCalendar = () => {
+    requestHolidayData();
+    scatterContainer.replaceChildren();
+    scatterContainer.setAttribute("aria-label", "Holiday Impact calendar");
+    scatterContainer.style.height = "356px";
+
+    const calendar = document.createElement("section");
+    calendar.className = "holiday-calendar";
+
+    const selectedDate = activeRange.selected ?? activeRange.from;
+    const selectedKey = holidayDateKey(selectedDate);
+    const firstRangeMonth = new Date(
+      activeRange.from.getFullYear(),
+      activeRange.from.getMonth(),
+      1,
+    );
+    const lastRangeMonth = new Date(
+      activeRange.to.getFullYear(),
+      activeRange.to.getMonth(),
+      1,
+    );
+
+    if (!holidayDisplayMonth || holidayDisplaySelectedKey !== selectedKey) {
+      holidayDisplayMonth = new Date(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        1,
+      );
+      holidayDisplaySelectedKey = selectedKey;
+    }
+
+    if (holidayDisplayMonth < firstRangeMonth) {
+      holidayDisplayMonth = firstRangeMonth;
+    } else if (holidayDisplayMonth > lastRangeMonth) {
+      holidayDisplayMonth = lastRangeMonth;
+    }
+
+    const displayedMonth = holidayDisplayMonth;
+    const hasMultipleMonths =
+      firstRangeMonth.getTime() !== lastRangeMonth.getTime();
+
+    const heading = document.createElement("h2");
+    heading.className = "holiday-calendar-heading";
+    const previousMonth = document.createElement("button");
+    previousMonth.type = "button";
+    previousMonth.className = "holiday-calendar-navigation is-previous";
+    previousMonth.setAttribute("aria-label", "Previous month");
+    previousMonth.hidden = !hasMultipleMonths;
+    previousMonth.disabled = displayedMonth <= firstRangeMonth;
+
+    const month = document.createElement("span");
+    month.className = "holiday-calendar-month";
+    month.textContent = new Intl.DateTimeFormat("en-US", {
+      month: "long",
+    }).format(displayedMonth);
+
+    const nextMonth = document.createElement("button");
+    nextMonth.type = "button";
+    nextMonth.className = "holiday-calendar-navigation is-next";
+    nextMonth.setAttribute("aria-label", "Next month");
+    nextMonth.hidden = !hasMultipleMonths;
+    nextMonth.disabled = displayedMonth >= lastRangeMonth;
+
+    const navigateMonth = (offset: number) => {
+      holidayDisplayMonth = new Date(
+        displayedMonth.getFullYear(),
+        displayedMonth.getMonth() + offset,
+        1,
+      );
+      drawImpactVisualization();
+    };
+    previousMonth.addEventListener("click", () => navigateMonth(-1));
+    nextMonth.addEventListener("click", () => navigateMonth(1));
+    heading.append(previousMonth, month, nextMonth);
+
+    const weekdays = document.createElement("div");
+    weekdays.className = "holiday-calendar-weekdays";
+    weekdays.setAttribute("aria-hidden", "true");
+    ["M", "T", "W", "T", "F", "S", "S"].forEach((label, index) => {
+      const weekday = document.createElement("span");
+      weekday.textContent = label;
+      weekdays.append(weekday);
+    });
+
+    const grid = document.createElement("div");
+    grid.className = "holiday-calendar-grid";
+    grid.setAttribute("role", "grid");
+    grid.setAttribute("aria-label", heading.textContent ?? "Calendar month");
+
+    const cells = buildHolidayCalendarCells(
+      displayedMonth,
+      {
+        from: activeRange.from,
+        to: activeRange.to,
+        selected: selectedDate,
+      },
+      holidayData,
+    );
+
+    const dailyDelayData = getDailyDelayData();
+    const weekdayDistribution = getWeekdayDistributionData(dailyDelayData);
+    const delayComparisons = new Map<string, CalendarDelayComparison>();
+
+    dailyDelayData.forEach((actual, date) => {
+      const weekdayAverage = weekdayDistribution[actual.weekdayIndex];
+      const normalizedDelayCount =
+        weekdayAverage.avgDelayCount > 0
+          ? actual.delayCount / weekdayAverage.avgDelayCount
+          : null;
+      const normalizedDelayTime =
+        actual.avgDelayMin !== null &&
+        weekdayAverage.avgDelayMin !== null &&
+        weekdayAverage.avgDelayMin > 0
+          ? actual.avgDelayMin / weekdayAverage.avgDelayMin
+          : null;
+      const normalizedValues = [
+        normalizedDelayCount,
+        normalizedDelayTime,
+      ].filter((value): value is number => value !== null);
+
+      delayComparisons.set(date, {
+        actual,
+        weekdayAverage,
+        normalizedDelayCount,
+        normalizedDelayTime,
+        normalizedAverage:
+          normalizedValues.length > 0 ? d3.mean(normalizedValues)! : null,
+      });
+    });
+
+    const delayAnomalyColor = d3.interpolateHcl("#fed7aa", "#dc2626");
+    const delayAnomalyFill = (position: number) => {
+      const clampedPosition = Math.max(0, Math.min(1, position));
+      const color = d3.rgb(delayAnomalyColor(clampedPosition));
+      color.opacity = 0.4 + clampedPosition * 0.6;
+      return color.formatRgb();
+    };
+    const formatNormalizedValue = (value: number | null) =>
+      value === null ? "N/A" : `${value.toFixed(2)}×`;
+
+    cells.forEach((cell) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "holiday-calendar-day";
+      button.textContent = `${cell.dayNumber}`;
+      button.disabled = !cell.isInRange;
+      button.classList.toggle("is-outside-month", !cell.isCurrentMonth);
+      button.classList.toggle("is-outside-range", !cell.isInRange);
+      button.classList.toggle("is-selected", cell.isSelected);
+      button.classList.toggle(
+        "has-public-holiday",
+        cell.publicHolidayNames.length > 0,
+      );
+      button.classList.toggle(
+        "has-school-holiday",
+        cell.schoolHolidayNames.length > 0,
+      );
+
+      const delayComparison = delayComparisons.get(cell.dateKey);
+      const aboveAverage =
+        delayComparison?.normalizedAverage === null ||
+        delayComparison?.normalizedAverage === undefined
+          ? 0
+          : Math.max(0, delayComparison.normalizedAverage - 1);
+
+      if (cell.isInRange && delayComparison && aboveAverage > 0) {
+        const colorPosition = Math.min(1, aboveAverage);
+        button.classList.add("has-delay-anomaly");
+        button.style.setProperty(
+          "--delay-anomaly-color",
+          delayAnomalyFill(colorPosition),
+        );
+        button.style.setProperty(
+          "--delay-anomaly-text-color",
+          colorPosition >= 0.5 ? "#fff7ed" : "#431407",
+        );
+      }
+
+      const dateLabel = new Intl.DateTimeFormat("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(cell.date);
+      const details = [
+        ...cell.publicHolidayNames.map((name) => `Public holiday: ${name}`),
+        ...cell.schoolHolidayNames.map((name) => `School holiday: ${name}`),
+      ];
+      if (delayComparison) {
+        details.push(
+          `Delays: ${delayComparison.actual.delayCount.toLocaleString(
+            "de-DE",
+          )} (weekday avg ${delayComparison.weekdayAverage.avgDelayCount.toLocaleString(
+            "de-DE",
+            { maximumFractionDigits: 1 },
+          )}; normalized ${formatNormalizedValue(
+            delayComparison.normalizedDelayCount,
+          )})`,
+          `Avg delay: ${
+            delayComparison.actual.avgDelayMin === null
+              ? "N/A"
+              : `${delayComparison.actual.avgDelayMin.toFixed(1)} min`
+          } (weekday avg ${
+            delayComparison.weekdayAverage.avgDelayMin === null
+              ? "N/A"
+              : `${delayComparison.weekdayAverage.avgDelayMin.toFixed(1)} min`
+          }; normalized ${formatNormalizedValue(
+            delayComparison.normalizedDelayTime,
+          )})`,
+          `Normalized average: ${formatNormalizedValue(
+            delayComparison.normalizedAverage,
+          )}`,
+        );
+      }
+      const accessibleLabel = [dateLabel, ...details].join(". ");
+      button.setAttribute("aria-label", accessibleLabel);
+      button.setAttribute("role", "gridcell");
+      if (cell.isSelected) {
+        button.setAttribute("aria-current", "date");
+      }
+      if (details.length > 0) {
+        const tooltipId = `holiday-tooltip-${cell.dateKey}`;
+        const holidayTooltip = document.createElement("span");
+        holidayTooltip.id = tooltipId;
+        holidayTooltip.className = "weather-holiday-tooltip";
+        holidayTooltip.setAttribute("role", "tooltip");
+
+        const dateLine = document.createElement("span");
+        dateLine.className = "weather-holiday-tooltip-date";
+        dateLine.textContent = dateLabel;
+        holidayTooltip.append(dateLine);
+
+        details.forEach((detail) => {
+          const line = document.createElement("span");
+          line.textContent = detail;
+          holidayTooltip.append(line);
+        });
+
+        button.setAttribute("aria-describedby", tooltipId);
+        button.append(holidayTooltip);
+      }
+
+      button.addEventListener("click", () => {
+        document.dispatchEvent(
+          new CustomEvent<SelectedDateChangeDetail>(
+            SELECTED_DATE_CHANGE_EVENT,
+            {
+              detail: {
+                from: toDateInputValue(activeRange.from),
+                to: toDateInputValue(activeRange.to),
+                selected: holidayDateKey(cell.date),
+                source: "holiday-calendar",
+              },
+            },
+          ),
+        );
+      });
+      grid.append(button);
+    });
+
+    const delayLegend = document.createElement("div");
+    delayLegend.className = "holiday-calendar-delay-legend";
+    delayLegend.setAttribute(
+      "aria-label",
+      "Combined normalized average: unfilled at or below weekday average, light orange just above one times average, and opaque red at two times average or more",
+    );
+
+    const legendTitle = document.createElement("span");
+    legendTitle.className = "holiday-calendar-delay-legend-title";
+    legendTitle.textContent = "Combined normalized average";
+
+    const legendScale = document.createElement("span");
+    legendScale.className = "holiday-calendar-delay-legend-scale";
+
+    const legendRamp = document.createElement("span");
+    legendRamp.className = "holiday-calendar-delay-legend-ramp";
+    legendRamp.style.background = `linear-gradient(to right, ${d3
+      .range(11)
+      .map((index) => {
+        const position = index / 10;
+        return `${delayAnomalyFill(position)} ${position * 100}%`;
+      })
+      .join(", ")})`;
+
+    const legendTicks = document.createElement("span");
+    legendTicks.className = "holiday-calendar-delay-legend-ticks";
+    ["just >1×", "1.5×", "≥2×"].forEach((label) => {
+      const tick = document.createElement("span");
+      tick.textContent = label;
+      legendTicks.append(tick);
+    });
+    legendScale.append(legendRamp, legendTicks);
+    delayLegend.append(legendTitle, legendScale);
+
+    const holidayLegend = document.createElement("div");
+    holidayLegend.className = "holiday-calendar-holiday-legend";
+    holidayLegend.setAttribute(
+      "aria-label",
+      "Holiday borders: yellow for public holidays, green for school holidays, and split yellow and green for both",
+    );
+
+    const holidayLegendTitle = document.createElement("span");
+    holidayLegendTitle.textContent = "Holiday borders";
+    holidayLegend.append(holidayLegendTitle);
+
+    [
+      { label: "Public", modifier: "is-public" },
+      { label: "School", modifier: "is-school" },
+      { label: "Both", modifier: "is-both" },
+    ].forEach(({ label, modifier }) => {
+      const item = document.createElement("span");
+      item.className = "holiday-calendar-holiday-legend-item";
+      const swatch = document.createElement("span");
+      swatch.className = `holiday-calendar-holiday-legend-swatch ${modifier}`;
+      swatch.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.textContent = label;
+      item.append(swatch, text);
+      holidayLegend.append(item);
+    });
+
+    calendar.append(heading, weekdays, grid, delayLegend, holidayLegend);
+
+    if (holidayDataLoading || (holidayData?.errors.length ?? 0) > 0) {
+      const status = document.createElement("p");
+      status.className = "holiday-calendar-status";
+      status.setAttribute("role", "status");
+      status.textContent = holidayDataLoading
+        ? "Loading holiday data…"
+        : "Some holiday data is unavailable.";
+      calendar.append(status);
+    }
+
+    scatterContainer.append(calendar);
+  };
+
   const drawImpactVisualization = () => {
+    if (impactMode === "holiday-impact") {
+      drawHolidayCalendar();
+      return;
+    }
+
     if (impactMode === "weather-impact") {
       drawImpactScatter();
       return;
@@ -2738,7 +3228,7 @@ export async function appendWeatherOverlay(
       activeDataset,
       currentVisibleStationNames,
       currentFocusedState,
-      currentDailyDelayTrips,
+      currentDelayDataset,
     );
 
     if (chartData.length === 0) {
@@ -3046,101 +3536,145 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("class", "weather-timeline-plot")
       .attr("clip-path", `url(#${timelineClipId})`);
-    const barG = plotG.append("g").attr("class", "delays-bars");
-    const linesG = plotG.append("g").attr("class", "weather-lines");
-    const pointsG = plotG.append("g").attr("class", "weather-points");
+    const timelineCanvas = document.createElementNS(
+      "http://www.w3.org/1999/xhtml",
+      "canvas",
+    ) as HTMLCanvasElement;
+    const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    timelineCanvas.className = "weather-timeline-canvas";
+    timelineCanvas.width = Math.ceil(innerWidth * pixelRatio);
+    timelineCanvas.height = Math.ceil(innerHeight * pixelRatio);
+    timelineCanvas.style.width = `${innerWidth}px`;
+    timelineCanvas.style.height = `${innerHeight}px`;
+    timelineCanvas.style.display = "block";
+    timelineCanvas.style.pointerEvents = "none";
+    plotG
+      .append("foreignObject")
+      .attr("width", innerWidth)
+      .attr("height", innerHeight)
+      .attr("pointer-events", "none")
+      .node()
+      ?.appendChild(timelineCanvas);
 
-    const countBars = barG
-      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-count-bar")
-      .data(
-        chartData.filter((d) => d.delaysCount > 0),
-        (d) => `${d.index}`,
-      )
-      .join("rect")
-      .attr("class", (d) => `delay-bar delay-count-bar day-${d.index}`)
-      .attr("y", (d) => yScaleCount(d.delaysCount))
-      .attr("height", (d) =>
-        Math.max(0, innerHeight - yScaleCount(d.delaysCount)),
-      )
-      .attr("fill", WEATHER_TIMELINE_COLORS.delayCount)
-      .attr("rx", 1)
-      .attr("opacity", 0.7);
+    const drawTimelineSeries = (highlightedIndex: number | null) => {
+      const context = timelineCanvas.getContext("2d");
 
-    const delayBars = barG
-      .selectAll<SVGRectElement, WeatherChartDatum>("rect.delay-avg-bar")
-      .data(
-        chartData.filter((d) => d.avgDelayMin > 0),
-        (d) => `${d.index}`,
-      )
-      .join("rect")
-      .attr("class", (d) => `delay-bar delay-avg-bar day-${d.index}`)
-      .attr("y", (d) => yScaleDelay(d.avgDelayMin))
-      .attr("height", (d) =>
-        Math.max(0, innerHeight - yScaleDelay(d.avgDelayMin)),
-      )
-      .attr("fill", WEATHER_TIMELINE_COLORS.avgDelay)
-      .attr("rx", 1)
-      .attr("opacity", 0.7);
+      if (!context) {
+        return;
+      }
 
-    const lineTemp = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.temp))
-      .x((d) => xScale(d.time))
-      .y((d) => yScaleTemp(d.temp));
-    const linePrecip = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.precip))
-      .x((d) => xScale(d.time))
-      .y((d) => yScalePrecip(d.precip));
-    const lineSnow = d3
-      .line<WeatherChartDatum>()
-      .defined((d) => Number.isFinite(d.snow))
-      .x((d) => xScale(d.time))
-      .y((d) => yScaleSnow(d.snow));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, innerWidth, innerHeight);
+      const barWidth = Math.max(
+        3,
+        Math.min(
+          18,
+          (innerWidth / chartData.length) * timelineZoomTransform.k * 0.18,
+        ),
+      );
+      const drawBar = (
+        x: number,
+        y: number,
+        height: number,
+        color: string,
+        opacity: number,
+      ) => {
+        context.globalAlpha = opacity;
+        context.fillStyle = color;
+        context.fillRect(x, y, Math.max(1, barWidth - 1), height);
+      };
 
-    const precipLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.precipitation)
-      .attr("stroke-width", 1.8);
-    const snowLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.snow_depth)
-      .attr("stroke-width", 1.8);
-    const tempLine = linesG
-      .append("path")
-      .datum(chartData)
-      .attr("fill", "none")
-      .attr("stroke", WEATHER_TIMELINE_COLORS.temperature_2m)
-      .attr("stroke-width", 1.8);
+      chartData.forEach((datum) => {
+        const opacity =
+          highlightedIndex === null
+            ? 0.7
+            : highlightedIndex === datum.index
+              ? 1
+              : 0.2;
+        const x = xScale(datum.time);
 
-    const precipPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.precip-point")
-      .data(chartData.filter((d) => Number.isFinite(d.precip)))
-      .join("circle")
-      .attr("class", "precip-point")
-      .attr("cy", (d) => yScalePrecip(d.precip))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.precipitation);
-    const snowPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.snow-point")
-      .data(chartData.filter((d) => Number.isFinite(d.snow)))
-      .join("circle")
-      .attr("class", "snow-point")
-      .attr("cy", (d) => yScaleSnow(d.snow))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.snow_depth);
-    const tempPoints = pointsG
-      .selectAll<SVGCircleElement, WeatherChartDatum>("circle.temp-point")
-      .data(chartData.filter((d) => Number.isFinite(d.temp)))
-      .join("circle")
-      .attr("class", "temp-point")
-      .attr("cy", (d) => yScaleTemp(d.temp))
-      .attr("r", 3.2)
-      .attr("fill", WEATHER_TIMELINE_COLORS.temperature_2m);
+        if (datum.delaysCount > 0) {
+          const y = yScaleCount(datum.delaysCount);
+          drawBar(
+            x - barWidth,
+            y,
+            Math.max(0, innerHeight - y),
+            WEATHER_TIMELINE_COLORS.delayCount,
+            opacity,
+          );
+        }
+
+        if (datum.avgDelayMin > 0) {
+          const y = yScaleDelay(datum.avgDelayMin);
+          drawBar(
+            x,
+            y,
+            Math.max(0, innerHeight - y),
+            WEATHER_TIMELINE_COLORS.avgDelay,
+            opacity,
+          );
+        }
+      });
+
+      context.globalAlpha = 1;
+      const drawLineAndPoints = (
+        value: (datum: WeatherChartDatum) => number,
+        scale: d3.ScaleLinear<number, number>,
+        color: string,
+      ) => {
+        context.beginPath();
+        let drawing = false;
+        chartData.forEach((datum) => {
+          const currentValue = value(datum);
+
+          if (!Number.isFinite(currentValue)) {
+            drawing = false;
+            return;
+          }
+
+          const x = xScale(datum.time);
+          const y = scale(currentValue);
+
+          if (drawing) {
+            context.lineTo(x, y);
+          } else {
+            context.moveTo(x, y);
+            drawing = true;
+          }
+        });
+        context.strokeStyle = color;
+        context.lineWidth = 1.8;
+        context.stroke();
+        context.fillStyle = color;
+        chartData.forEach((datum) => {
+          const currentValue = value(datum);
+
+          if (!Number.isFinite(currentValue)) {
+            return;
+          }
+
+          context.beginPath();
+          context.arc(xScale(datum.time), scale(currentValue), 3.2, 0, Math.PI * 2);
+          context.fill();
+        });
+      };
+
+      drawLineAndPoints(
+        (datum) => datum.precip,
+        yScalePrecip,
+        WEATHER_TIMELINE_COLORS.precipitation,
+      );
+      drawLineAndPoints(
+        (datum) => datum.snow,
+        yScaleSnow,
+        WEATHER_TIMELINE_COLORS.snow_depth,
+      );
+      drawLineAndPoints(
+        (datum) => datum.temp,
+        yScaleTemp,
+        WEATHER_TIMELINE_COLORS.temperature_2m,
+      );
+    };
 
     const selectedLine = plotG
       .append("line")
@@ -3192,6 +3726,9 @@ export async function appendWeatherOverlay(
       .attr("pointer-events", "all");
 
     let currentHoverIndex: number | null = null;
+    let highlightedBarIndex: number | null = null;
+    let pointerMoveFrame: number | null = null;
+    let pendingPointerX = 0;
     let pointerStart: [number, number] | null = null;
     let pointerMoved = false;
 
@@ -3204,7 +3741,8 @@ export async function appendWeatherOverlay(
     });
 
     const restoreBarOpacity = () => {
-      chartSvg.selectAll(".delay-bar").attr("opacity", 0.7);
+      highlightedBarIndex = null;
+      drawTimelineSeries(null);
     };
 
     const hideHoverState = () => {
@@ -3215,18 +3753,17 @@ export async function appendWeatherOverlay(
       restoreBarOpacity();
     };
 
+    const timelineBisector = d3.bisector<WeatherChartDatum, Date>(
+      (datum) => datum.time,
+    ).center;
     const closestIndexForX = (mouseX: number) => {
-      let closestIndex = 0;
-      let minDistance = Number.POSITIVE_INFINITY;
-      chartData.forEach((d, i) => {
-        const distance = Math.abs(xScale(d.time) - mouseX);
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = i;
-        }
-      });
-
-      return closestIndex;
+      return Math.max(
+        0,
+        Math.min(
+          chartData.length - 1,
+          timelineBisector(chartData, xScale.invert(mouseX)),
+        ),
+      );
     };
 
     const updateHoverMarkers = (index: number) => {
@@ -3249,8 +3786,9 @@ export async function appendWeatherOverlay(
         .style("display", Number.isFinite(d.snow) ? "" : "none");
 
       hoverCirclesG.style("display", "block");
-      chartSvg.selectAll(".delay-bar").attr("opacity", 0.2);
-      chartSvg.selectAll(`.day-${d.index}`).attr("opacity", 1.0);
+
+      highlightedBarIndex = d.index;
+      drawTimelineSeries(highlightedBarIndex);
     };
 
     const showChartTooltip = (d: WeatherChartDatum) => {
@@ -3294,6 +3832,23 @@ export async function appendWeatherOverlay(
         .style("transform", "translate(-50%, -100%)");
     };
 
+    const syncSelectedLine = () => {
+      if (
+        selectedHourIndex !== null &&
+        selectedHourIndex >= 0 &&
+        selectedHourIndex < chartData.length
+      ) {
+        const selectedX = xScale(chartData[selectedHourIndex].time);
+        selectedLine
+          .attr("x1", selectedX)
+          .attr("x2", selectedX)
+          .style("display", "block");
+      } else {
+        selectedLine.style("display", "none");
+      }
+    };
+    updateTimelineSelection = syncSelectedLine;
+
     const renderZoomedChart = (
       nextXScale: d3.ScaleTime<number, number>,
       transform: d3.ZoomTransform,
@@ -3322,7 +3877,7 @@ export async function appendWeatherOverlay(
         .call((axisG) =>
           axisG
             .selectAll(".tick text")
-            .attr("fill", "rgba(255, 255, 255, 0.6)")
+            .attr("fill", "rgba(255, 255, 255, 1.0)")
             .attr("stroke", "rgba(0, 0, 0, 0.86)")
             .attr("stroke-width", 3)
             .attr("stroke-linejoin", "round")
@@ -3330,38 +3885,9 @@ export async function appendWeatherOverlay(
             .style("font-size", "10px"),
         );
 
-      const barWidth = Math.max(
-        3,
-        Math.min(18, (innerWidth / chartData.length) * transform.k * 0.18),
-      );
+      drawTimelineSeries(highlightedBarIndex);
 
-      countBars
-        .attr("x", (d) => xScale(d.time) - barWidth)
-        .attr("width", Math.max(1, barWidth - 1));
-      delayBars
-        .attr("x", (d) => xScale(d.time))
-        .attr("width", Math.max(1, barWidth - 1));
-
-      precipLine.attr("d", linePrecip);
-      snowLine.attr("d", lineSnow);
-      tempLine.attr("d", lineTemp);
-      precipPoints.attr("cx", (d) => xScale(d.time));
-      snowPoints.attr("cx", (d) => xScale(d.time));
-      tempPoints.attr("cx", (d) => xScale(d.time));
-
-      if (
-        selectedHourIndex !== null &&
-        selectedHourIndex >= 0 &&
-        selectedHourIndex < chartData.length
-      ) {
-        const selX = xScale(chartData[selectedHourIndex].time);
-        selectedLine
-          .attr("x1", selX)
-          .attr("x2", selX)
-          .style("display", "block");
-      } else {
-        selectedLine.style("display", "none");
-      }
+      syncSelectedLine();
 
       if (currentHoverIndex !== null) {
         updateHoverMarkers(currentHoverIndex);
@@ -3369,6 +3895,8 @@ export async function appendWeatherOverlay(
       }
     };
 
+    let zoomRenderFrame: number | null = null;
+    let pendingZoomTransform = timelineZoomTransform;
     const zoomBehavior = d3
       .zoom<SVGRectElement, unknown>()
       .extent([
@@ -3385,10 +3913,17 @@ export async function appendWeatherOverlay(
         hideHoverState();
       })
       .on("zoom", (event) => {
-        renderZoomedChart(
-          event.transform.rescaleX(baseXScale),
-          event.transform,
-        );
+        pendingZoomTransform = event.transform;
+
+        if (zoomRenderFrame === null) {
+          zoomRenderFrame = window.requestAnimationFrame(() => {
+            zoomRenderFrame = null;
+            renderZoomedChart(
+              pendingZoomTransform.rescaleX(baseXScale),
+              pendingZoomTransform,
+            );
+          });
+        }
       })
       .on("end", () => {
         captureRect.classed("is-panning", false);
@@ -3414,21 +3949,30 @@ export async function appendWeatherOverlay(
           return;
         }
 
-        const [mouseX] = d3.pointer(event, this);
-        const closestIndex = closestIndexForX(mouseX);
+        [pendingPointerX] = d3.pointer(event, this);
 
-        if (closestIndex !== currentHoverIndex) {
-          currentHoverIndex = closestIndex;
-          updateHoverMarkers(closestIndex);
-          previewHour(closestIndex);
+        if (pointerMoveFrame === null) {
+          pointerMoveFrame = window.requestAnimationFrame(() => {
+            pointerMoveFrame = null;
+            const closestIndex = closestIndexForX(pendingPointerX);
+
+            if (closestIndex !== currentHoverIndex) {
+              currentHoverIndex = closestIndex;
+              updateHoverMarkers(closestIndex);
+              previewHour(closestIndex);
+              showChartTooltip(chartData[closestIndex]);
+            }
+          });
         }
-
-        showChartTooltip(chartData[closestIndex]);
       })
       .on("pointerup", () => {
         pointerStart = null;
       })
       .on("pointerleave", () => {
+        if (pointerMoveFrame !== null) {
+          window.cancelAnimationFrame(pointerMoveFrame);
+          pointerMoveFrame = null;
+        }
         pointerStart = null;
         pointerMoved = false;
         hideHoverState();
@@ -3518,9 +4062,33 @@ export async function appendWeatherOverlay(
     .attr("fill", "transparent")
     .attr("pointer-events", "all");
 
+  const rasterCanvas = document.createElementNS(
+    "http://www.w3.org/1999/xhtml",
+    "canvas",
+  ) as HTMLCanvasElement;
+  rasterCanvas.className = "weather-cell-canvas";
+  rasterCanvas.style.width = `${WIDTH}px`;
+  rasterCanvas.style.height = `${HEIGHT}px`;
+  rasterCanvas.style.display = "block";
+  rasterCanvas.style.pointerEvents = "none";
+  rasterCanvas.style.imageRendering = "pixelated";
+  layer
+    .append("foreignObject")
+    .attr("class", "weather-cell-raster")
+    .attr("x", 0)
+    .attr("y", 0)
+    .attr("width", WIDTH)
+    .attr("height", HEIGHT)
+    .attr("pointer-events", "none")
+    .node()
+    ?.appendChild(rasterCanvas);
+
   const overlay: WeatherOverlay = {
     layer,
+    rasterCanvas,
     currentCells: [],
+    currentCellsByKey: new Map(),
+    currentCellColors: new Map(),
     impactPanel,
     impactVisualizationContainer: scatterContainer,
     ...controls,
@@ -3609,7 +4177,9 @@ export async function appendWeatherOverlay(
     renderHour(overlay, activeDataset, index, activeVariableKey);
     renderedHourIndex = index;
     dispatchWeatherDatePreview(activeDataset.hours[index].time);
-    drawImpactVisualization();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
   const commitHour = (index: number) => {
@@ -3633,11 +4203,20 @@ export async function appendWeatherOverlay(
       dispatchSelectedDateChange(activeRange, hour.time);
     }
 
-    drawTimelineChart();
-    drawImpactVisualization();
+    updateTimelineSelection();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
+  let rulerPreviewFrame: number | null = null;
+  let pendingRulerPreviewIndex = 0;
   const restoreSelectedHour = () => {
+    if (rulerPreviewFrame !== null) {
+      window.cancelAnimationFrame(rulerPreviewFrame);
+      rulerPreviewFrame = null;
+    }
+
     if (!activeDataset || previewHourIndex === null) {
       return;
     }
@@ -3649,8 +4228,9 @@ export async function appendWeatherOverlay(
     renderedHourIndex = restoreIndex;
     dispatchWeatherDatePreview(null);
 
-    drawTimelineChart();
-    drawImpactVisualization();
+    if (impactMode !== "none" && impactMode !== "weekdays-distribution") {
+      drawImpactVisualization();
+    }
   };
 
   const previewFromPointer = (event: MouseEvent) => {
@@ -3658,9 +4238,18 @@ export async function appendWeatherOverlay(
       return;
     }
 
-    previewHour(
-      hourIndexFromPointer(event, controls.stepMarks, activeDataset.hours),
+    pendingRulerPreviewIndex = hourIndexFromPointer(
+      event,
+      controls.stepMarks,
+      activeDataset.hours,
     );
+
+    if (rulerPreviewFrame === null) {
+      rulerPreviewFrame = window.requestAnimationFrame(() => {
+        rulerPreviewFrame = null;
+        previewHour(pendingRulerPreviewIndex);
+      });
+    }
   };
 
   const restoreWhenPointerLeavesRuler = (event: MouseEvent) => {
@@ -3729,6 +4318,18 @@ export async function appendWeatherOverlay(
     }
 
     activeRange = nextRange;
+
+    if (source === "holiday-calendar" && activeDataset) {
+      const nextIndex =
+        matchingCalendarDateIndex(activeDataset.hours, nextRange.selected) ??
+        closestHourIndex(
+          activeDataset.hours,
+          selectedDateTargetTime(nextRange.selected),
+        );
+      commitHour(nextIndex);
+      return;
+    }
+
     void loadAndRender(nextRange).catch((error) => {
       if (
         sameCalendarDate(activeRange.from, nextRange.from) &&
@@ -3746,14 +4347,20 @@ export async function appendWeatherOverlay(
   }
 
   return {
-    showTooltipAtPoint: (event, [x, y]) => {
-      const cell = overlay.currentCells.find(
-        (candidate) =>
-          x >= candidate.x &&
-          x < candidate.x + candidate.size &&
-          y >= candidate.y &&
-          y < candidate.y + candidate.size,
-      );
+    colorAtPoint: ([x, y]) => {
+      const cellSize = overlay.currentCells[0]?.size;
+
+      if (!cellSize) {
+        return null;
+      }
+
+      const cellX = Math.floor(x / cellSize) * cellSize;
+      const cellY = Math.floor(y / cellSize) * cellSize;
+
+      return overlay.currentCellColors.get(`${cellX},${cellY}`) ?? null;
+    },
+    showTooltipAtPoint: (event, [x, y], geographicName) => {
+      const cell = weatherCellAtPoint(overlay, x, y);
 
       if (
         !cell ||
@@ -3765,12 +4372,24 @@ export async function appendWeatherOverlay(
       }
 
       const config = WEATHER_VARIABLES[activeVariableKey];
+      const weatherValue = document.createElement("div");
+      weatherValue.textContent = `${cell.rawValue.toFixed(1)} ${config.unit}`;
+      const tooltipLines: Node[] = [];
+
+      if (geographicName) {
+        const location = document.createElement("div");
+        location.style.fontWeight = "600";
+        location.textContent = geographicName;
+        tooltipLines.push(location);
+      }
+
+      tooltipLines.push(weatherValue);
+      tooltip.node()?.replaceChildren(...tooltipLines);
       tooltip
         .style("display", "block")
         .style("left", `${event.pageX + 10}px`)
         .style("top", `${event.pageY + 10}px`)
-        .style("background", COLORS.TOOLTIP.BACKGROUND)
-        .text(`${cell.rawValue.toFixed(1)} ${config.unit}`);
+        .style("background", COLORS.TOOLTIP.BACKGROUND);
 
       return true;
     },
@@ -3778,13 +4397,26 @@ export async function appendWeatherOverlay(
     setHoveredStation: (stationEva) => {
       setImpactStationHighlight(stationEva);
     },
-    updateData: (visibleStations, focusedState, dailyDelayTrips) => {
+    updateData: (visibleStations, focusedState, delayDataset) => {
+      const nextSignature = `${focusedState ?? ""}|${visibleStations
+        .map((station) => station.eva)
+        .sort((left, right) => left - right)
+        .join(",")}`;
+      const dataChanged =
+        currentDataSignature !== nextSignature ||
+        currentDelayDataset !== delayDataset;
+
+      if (!dataChanged) {
+        return;
+      }
+
+      currentDataSignature = nextSignature;
       currentVisibleStations = visibleStations;
       currentVisibleStationNames = new Set(
         visibleStations.map((station) => station.name),
       );
       currentFocusedState = focusedState;
-      currentDailyDelayTrips = dailyDelayTrips;
+      currentDelayDataset = delayDataset;
       drawTimelineChart();
       drawImpactVisualization();
     },
