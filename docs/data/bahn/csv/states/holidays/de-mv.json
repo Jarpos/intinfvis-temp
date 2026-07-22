@@ -1,0 +1,57 @@
+[
+  {
+    "startDate": "2023-01-01",
+    "endDate": "2023-01-01",
+    "name": "New Year's Day"
+  },
+  {
+    "startDate": "2023-03-08",
+    "endDate": "2023-03-08",
+    "name": "International Women's Day"
+  },
+  {
+    "startDate": "2023-04-07",
+    "endDate": "2023-04-07",
+    "name": "Good Friday"
+  },
+  {
+    "startDate": "2023-04-10",
+    "endDate": "2023-04-10",
+    "name": "Easter Monday"
+  },
+  {
+    "startDate": "2023-05-01",
+    "endDate": "2023-05-01",
+    "name": "Labour Day"
+  },
+  {
+    "startDate": "2023-05-18",
+    "endDate": "2023-05-18",
+    "name": "Ascension Day"
+  },
+  {
+    "startDate": "2023-05-29",
+    "endDate": "2023-05-29",
+    "name": "Pentecost Monday"
+  },
+  {
+    "startDate": "2023-10-03",
+    "endDate": "2023-10-03",
+    "name": "Day of German Unity"
+  },
+  {
+    "startDate": "2023-10-31",
+    "endDate": "2023-10-31",
+    "name": "Reformation Day"
+  },
+  {
+    "startDate": "2023-12-25",
+    "endDate": "2023-12-25",
+    "name": "Christmas Day"
+  },
+  {
+    "startDate": "2023-12-26",
+    "endDate": "2023-12-26",
+    "name": "2nd Day of Christmas"
+  }
+]

@@ -1,0 +1,8 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8002134,8002134,0,1,0,0,0,Gießen
+8002134,8004417,0,1,0,0,0,Gießen
+8003856,8003856,0,1,0,0,0,Gießen
+8004417,8004417,0,1,0,0,0,Gießen
+8004417,8004420,0,1,0,0,0,Gießen
+8004420,8003856,0,1,0,0,0,Gießen
+8004420,8004420,0,1,0,0,0,Gießen

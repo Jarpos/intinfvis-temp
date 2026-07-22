@@ -1,0 +1,6 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8001092,8001092,0,1,0,0,0,Schleswig-Holstein
+8001092,8002011,0,1,0,0,0,Schleswig-Holstein
+8001718,8001092,0,1,0,0,0,Schleswig-Holstein
+8001718,8001718,0,1,0,0,0,Schleswig-Holstein
+8002011,8002011,0,1,0,0,0,Schleswig-Holstein

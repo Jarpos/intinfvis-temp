@@ -1,0 +1,10 @@
+from_stop_id,to_stop_id,delay_count,entries_count,avg_delay,median_delay,max_delay,region_name
+8001515,8001515,0,1,0,0,0,Arnsberg
+8001515,8001537,0,1,0,0,0,Arnsberg
+8001537,8001537,0,1,0,0,0,Arnsberg
+8001537,8003169,0,1,0,0,0,Arnsberg
+8003168,8003168,0,1,0,0,0,Arnsberg
+8003168,8004448,0,1,0,0,0,Arnsberg
+8003169,8003168,0,1,0,0,0,Arnsberg
+8003169,8003169,0,1,0,0,0,Arnsberg
+8004448,8004448,0,1,0,0,0,Arnsberg
