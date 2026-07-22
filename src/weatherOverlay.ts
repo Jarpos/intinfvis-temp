@@ -877,18 +877,35 @@ function timelineTickValues(
   }
 
   const minLabelSpacing = 82;
-  const step = Math.max(
-    1,
-    Math.ceil((ticks.length * minLabelSpacing) / innerWidth),
-  );
+  const selectedTicks = [ticks[0]];
 
-  if (step === 1) {
-    return ticks;
+  // Space labels by their rendered positions. A fixed index step can leave the
+  // final tick immediately beside the previous one when the day count is not a
+  // multiple of that step.
+  ticks.slice(1, -1).forEach((tick) => {
+    const previousTick = selectedTicks[selectedTicks.length - 1];
+    if (xScale(tick) - xScale(previousTick) >= minLabelSpacing) {
+      selectedTicks.push(tick);
+    }
+  });
+
+  const lastTick = ticks[ticks.length - 1];
+  while (
+    selectedTicks.length > 1 &&
+    xScale(lastTick) - xScale(selectedTicks[selectedTicks.length - 1]) <
+      minLabelSpacing
+  ) {
+    selectedTicks.pop();
   }
 
-  return ticks.filter(
-    (_, index) => index % step === 0 || index === ticks.length - 1,
-  );
+  if (
+    xScale(lastTick) - xScale(selectedTicks[selectedTicks.length - 1]) >=
+    minLabelSpacing
+  ) {
+    selectedTicks.push(lastTick);
+  }
+
+  return selectedTicks;
 }
 
 function formatTimelineTick(date: Date) {
