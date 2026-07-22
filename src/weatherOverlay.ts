@@ -1632,10 +1632,7 @@ export async function appendWeatherOverlay(
       "is-weekday-distribution",
       impactMode === "weekdays-distribution",
     );
-    scatterContainer.classList.toggle(
-      "is-holiday-calendar",
-      isHolidayImpact,
-    );
+    scatterContainer.classList.toggle("is-holiday-calendar", isHolidayImpact);
     document.body.classList.toggle("weather-impact-active", isActive);
     document.body.classList.toggle(
       "weather-best-worst-active",
@@ -1881,11 +1878,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     chart
       .append("g")
@@ -2077,11 +2070,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     const xAxis = d3
       .axisTop(xScale)
@@ -2228,9 +2217,7 @@ export async function appendWeatherOverlay(
         .attr("width", (d) => Math.abs(xScale(d.delayAddedMin) - zeroX));
       stationLabels
         .attr("x", (d) => (d.delayAddedMin < 0 ? zeroX + 9 : zeroX - 9))
-        .attr("text-anchor", (d) =>
-          d.delayAddedMin < 0 ? "start" : "end",
-        );
+        .attr("text-anchor", (d) => (d.delayAddedMin < 0 ? "start" : "end"));
       valueLabels.attr("x", (d) =>
         d.delayAddedMin < 0
           ? xScale(d.delayAddedMin) - 7
@@ -2305,11 +2292,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     chart
       .append("g")
@@ -2521,8 +2504,7 @@ export async function appendWeatherOverlay(
       .domain([0, delayMax])
       .nice(isCompact ? 4 : 5)
       .range([innerHeight, 0]);
-    const xForDatum = (datum: WeekdayDistributionDatum) =>
-      xScale(datum.index);
+    const xForDatum = (datum: WeekdayDistributionDatum) => xScale(datum.index);
 
     const countLine = d3
       .line<WeekdayDistributionDatum>()
@@ -2550,11 +2532,7 @@ export async function appendWeatherOverlay(
       .append("g")
       .attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-    const zoomSurface = appendImpactZoomSurface(
-      chart,
-      innerWidth,
-      innerHeight,
-    );
+    const zoomSurface = appendImpactZoomSurface(chart, innerWidth, innerHeight);
 
     const visibleWeekdayTicks = () =>
       data
@@ -3780,7 +3758,7 @@ export async function appendWeatherOverlay(
         .call((axisG) =>
           axisG
             .selectAll(".tick text")
-            .attr("fill", "rgba(255, 255, 255, 0.6)")
+            .attr("fill", "rgba(255, 255, 255, 1.0)")
             .attr("stroke", "rgba(0, 0, 0, 0.86)")
             .attr("stroke-width", 3)
             .attr("stroke-linejoin", "round")
