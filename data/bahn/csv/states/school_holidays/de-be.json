@@ -1,0 +1,47 @@
+[
+  {
+    "startDate": "2022-12-22",
+    "endDate": "2023-01-02",
+    "name": "Christmas holidays"
+  },
+  {
+    "startDate": "2023-01-30",
+    "endDate": "2023-02-04",
+    "name": "Winter holidays"
+  },
+  {
+    "startDate": "2023-04-03",
+    "endDate": "2023-04-14",
+    "name": "Easter holidays"
+  },
+  {
+    "startDate": "2023-05-19",
+    "endDate": "2023-05-19",
+    "name": "Day off"
+  },
+  {
+    "startDate": "2023-05-30",
+    "endDate": "2023-05-30",
+    "name": "Pentecost holidays"
+  },
+  {
+    "startDate": "2023-07-13",
+    "endDate": "2023-08-25",
+    "name": "Summer holidays"
+  },
+  {
+    "startDate": "2023-10-02",
+    "endDate": "2023-10-02",
+    "name": "Day off"
+  },
+  {
+    "startDate": "2023-10-23",
+    "endDate": "2023-11-04",
+    "name": "Autumn holidays"
+  },
+  {
+    "startDate": "2023-12-23",
+    "endDate": "2024-01-05",
+    "name": "Christmas holidays"
+  }
+]

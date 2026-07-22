@@ -1,0 +1,8 @@
+region_name,section_count,delay_count,avg_delay,median_delay,max_delay,total_entries,date
+Arnsberg,9.0,0.0,0.0,0.0,0.0,9.0,2023-01-23
+Brandenburg,11.0,0.0,0.0,0.0,0.0,11.0,2023-01-23
+Düsseldorf,6.0,0.0,0.0,0.0,0.0,6.0,2023-01-23
+Gießen,7.0,0.0,0.0,0.0,0.0,7.0,2023-01-23
+Köln,4.0,0.0,0.0,0.0,0.0,4.0,2023-01-23
+Oberbayern,77.0,0.0,0.0,0.0,0.0,77.0,2023-01-23
+Schleswig-Holstein,5.0,0.0,0.0,0.0,0.0,5.0,2023-01-23

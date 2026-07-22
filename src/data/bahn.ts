@@ -1,112 +1,949 @@
 import * as d3 from "d3";
 
 import { COLORS } from "../colors";
+import circleStationIcon from "../images/icons/circle-filled.svg";
+import squareStationIcon from "../images/icons/square-filled.svg";
+import starStationIcon from "../images/icons/star-filled.svg";
+import triangleStationIcon from "../images/icons/triangle-filled.svg";
 import { projection } from "./geo";
 
-export type Station = {
-  name: string;
-  coords: number[];
+export interface StationCsvColumns {
   eva: number;
+  name: string;
+  lat: number;
+  lon: number;
+  region_name: string;
+  state_name: string;
+  quay_count: number;
+  mobility_accessibility: boolean;
+  audible_accessibility: boolean;
+  visual_accessibility: boolean;
+  tactile_accessibility: boolean;
+}
+
+export interface Station extends StationCsvColumns {
+  coords: [number, number];
+  region: string;
+  state: string;
+}
+
+export type DelayDateRange = {
+  from: string;
+  to: string;
 };
 
+export type DelayTrip = {
+  from_stop_id: number;
+  to_stop_id: number;
+  delay_count: number;
+  avg_delay: number;
+  entries_count: number;
+};
+
+export type DelayRangeDataset = {
+  tripsByDate: { [date: string]: DelayTrip[] };
+  connectionsByDate: { [date: string]: Connection[] };
+  rangeTrips: DelayTrip[];
+  rangeConnections: Connection[];
+};
+
+type DelaySummary = {
+  region_name: string;
+  date: string;
+};
+
+function stationIconForQuayCount(quayCount: number) {
+  if (Number.isFinite(quayCount) && quayCount >= 1 && quayCount <= 4) {
+    return triangleStationIcon;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
+    return squareStationIcon;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount > 19) {
+    return starStationIcon;
+  }
+
+  return circleStationIcon;
+}
+
+function stationIconSizeMultiplier(quayCount: number) {
+  if (Number.isFinite(quayCount) && quayCount >= 5 && quayCount <= 19) {
+    return 1.5;
+  }
+
+  if (Number.isFinite(quayCount) && quayCount > 19) {
+    return 2;
+  }
+
+  return 1;
+}
+
+function opacityForStationFill(fill: string) {
+  const hexAlpha = fill.match(/^#[\da-f]{8}$/i)?.[0].slice(7, 9);
+
+  if (!hexAlpha) {
+    return 1;
+  }
+
+  return Number.parseInt(hexAlpha, 16) / 255;
+}
+
+function parseCsvBoolean(value: string | undefined) {
+  return value === "true" || value === "1";
+}
+
+function parseStationRow(d: Record<string, string | undefined>): Station {
+  const lat = Number(d.lat);
+  const lon = Number(d.lon);
+  const regionName = d.region_name ?? "";
+  const stateName = d.state_name ?? "";
+
+  return {
+    eva: Number(d.eva),
+    name: d.name ?? "",
+    lat,
+    lon,
+    region_name: regionName,
+    state_name: stateName,
+    quay_count: Number(d.quay_count),
+    mobility_accessibility: parseCsvBoolean(d.mobility_accessibility),
+    audible_accessibility: parseCsvBoolean(d.audible_accessibility),
+    visual_accessibility: parseCsvBoolean(d.visual_accessibility),
+    tactile_accessibility: parseCsvBoolean(d.tactile_accessibility),
+    region: regionName,
+    state: stateName,
+    coords: [
+      lon, // longitude first
+      lat, // latitude second
+    ],
+  };
+}
+
+//now filters connections using a fast Set.has check (O(1) per connection), reducing rendering calculations
 export function appendTrainStrecken(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-  selectedStationNames = new Set(stations.map((station) => station.name)),
+  connections: Connection[],
+  selectedStationNames = new Set(icStations.map((station) => station.name)),
+  weatherColorAtPoint?: (point: [number, number]) => string | null,
 ) {
-  const stationByEva = new Map(stations.map((s) => [String(s.eva), s]));
-  const connections = trips.flatMap((trip) =>
-    trip.stops
-      .slice(0, -1)
-      .map((stop, i) => ({
-        source: stationByEva.get(String(stop.stop_id)),
-        target: stationByEva.get(String(trip.stops[i + 1].stop_id)),
-        delay: trip.stops[i + 1].delay,
-      }))
-      .filter((d) => d.source && d.target),
+  const filteredConnections = connections.filter(
+    (c) =>
+      selectedStationNames.has(c.source.name) &&
+      selectedStationNames.has(c.target.name),
+  );
+  const maxDelayCount =
+    d3.max(filteredConnections, (connection) => connection.delayCount) ?? 0;
+  const lineWidthForDelayCount = d3
+    .scaleLinear()
+    .domain([0, Math.max(1, maxDelayCount)])
+    .range([0.75, 6])
+    .clamp(true);
+  const connectionKey = (connection: Connection) =>
+    `${connection.source.eva}-${connection.target.eva}`;
+  const lineColor = (connection: Connection) =>
+    connection.delay >= 300
+      ? "#d73027"
+      : connection.delay >= 120
+        ? "#fc8d59"
+        : connection.delay >= 60
+          ? "#fee08b"
+          : "#1a9850";
+  const colorsAreSimilar = (first: string, second: string) => {
+    const firstLab = colorLab(first);
+    const secondLab = colorLab(second);
+    const deltaE = Math.hypot(
+      firstLab.l - secondLab.l,
+      firstLab.a - secondLab.a,
+      firstLab.b - secondLab.b,
+    );
+
+    return deltaE < 35;
+  };
+  type ConnectionOutlineSegment = {
+    key: string;
+    connection: Connection;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  };
+  const outlineSegmentsForConnection = (
+    connection: Connection,
+  ): ConnectionOutlineSegment[] => {
+    if (!weatherColorAtPoint) {
+      return [];
+    }
+
+    const sourcePoint = projectedStationPoint(connection.source);
+    const targetPoint = projectedStationPoint(connection.target);
+
+    if (!sourcePoint || !targetPoint) {
+      return [];
+    }
+
+    const distance = Math.hypot(
+      targetPoint[0] - sourcePoint[0],
+      targetPoint[1] - sourcePoint[1],
+    );
+    const sampleCount = Math.max(1, Math.ceil(distance / 8));
+
+    const segments: ConnectionOutlineSegment[] = [];
+
+    for (let sample = 0; sample < sampleCount; sample += 1) {
+      const startProgress = sample / sampleCount;
+      const endProgress = (sample + 1) / sampleCount;
+      const midpointProgress = (startProgress + endProgress) / 2;
+      const weatherColor = weatherColorAtPoint([
+        sourcePoint[0] +
+          (targetPoint[0] - sourcePoint[0]) * midpointProgress,
+        sourcePoint[1] +
+          (targetPoint[1] - sourcePoint[1]) * midpointProgress,
+      ]);
+
+      if (
+        weatherColor &&
+        colorsAreSimilar(lineColor(connection), weatherColor)
+      ) {
+        segments.push({
+          key: `${connectionKey(connection)}-${sample}`,
+          connection,
+          x1:
+            sourcePoint[0] +
+            (targetPoint[0] - sourcePoint[0]) * startProgress,
+          y1:
+            sourcePoint[1] +
+            (targetPoint[1] - sourcePoint[1]) * startProgress,
+          x2:
+            sourcePoint[0] +
+            (targetPoint[0] - sourcePoint[0]) * endProgress,
+          y2:
+            sourcePoint[1] +
+            (targetPoint[1] - sourcePoint[1]) * endProgress,
+        });
+      }
+    }
+
+    return segments;
+  };
+  const outlineSegments = filteredConnections.flatMap(
+    outlineSegmentsForConnection,
   );
 
-  return (
-    g
-      .selectAll("line")
-      .data(
-        connections.filter(
-          (c) =>
-            selectedStationNames.has(
-              stations.find((s) => s.eva == c.source!.eva)!.name,
-            ) &&
-            selectedStationNames.has(
-              stations.find((s) => s.eva == c.target!.eva)!.name,
-            ),
-        ),
-        (d) => `${(d as number[])[0]}-${(d as number[])[1]}`,
-      )
-      .join("line")
-      .attr("x1", (d) => projection(d.source!.coords as [number, number])![0])
-      .attr("y1", (d) => projection(d.source!.coords as [number, number])![1])
-      .attr("x2", (d) => projection(d.target!.coords as [number, number])![0])
-      .attr("y2", (d) => projection(d.target!.coords as [number, number])![1])
-      // .attr("stroke", COLORS.TRAINS.LINES)
-      .attr("stroke", (d) =>
-        d.delay >= 300
-          ? "#d73027"
-          : d.delay >= 120
-            ? "#fc8d59"
-            : d.delay >= 60
-              ? "#fee08b"
-              : "#1a9850",
-      )
-      .attr("stroke-width", 0.5)
-  );
+  g.selectAll<SVGLineElement, ConnectionOutlineSegment>(
+    "line.train-delay-line-outline",
+  )
+    .data(outlineSegments, (segment) => segment.key)
+    .join(
+      (enter) =>
+        enter
+          .append("line")
+          .attr("class", "train-delay-line-outline")
+          .attr("x1", (segment) => segment.x1)
+          .attr("y1", (segment) => segment.y1)
+          .attr("x2", (segment) => segment.x2)
+          .attr("y2", (segment) => segment.y2)
+          .attr("stroke", "#000")
+          .attr("stroke-opacity", 0.9)
+          .attr("pointer-events", "none")
+          .attr("vector-effect", "non-scaling-stroke"),
+      (update) => update,
+      (exit) => exit.remove(),
+    )
+    .attr(
+      "stroke-width",
+      (segment) =>
+        lineWidthForDelayCount(segment.connection.delayCount) + 1,
+    )
+    .lower();
+
+  return g
+    .selectAll<SVGLineElement, Connection>("line.train-delay-line")
+    .data(filteredConnections, connectionKey)
+    .join(
+      (enter) =>
+        enter
+          .append("line")
+          .attr("class", "train-delay-line")
+          .attr("x1", (d) => projectedStationPoint(d.source)?.[0] ?? 0)
+          .attr("y1", (d) => projectedStationPoint(d.source)?.[1] ?? 0)
+          .attr("x2", (d) => projectedStationPoint(d.target)?.[0] ?? 0)
+          .attr("y2", (d) => projectedStationPoint(d.target)?.[1] ?? 0)
+          .attr("stroke-opacity", 0.9)
+          .attr("pointer-events", "stroke")
+          .attr("vector-effect", "non-scaling-stroke"),
+      (update) => update,
+      (exit) => exit.remove(),
+    )
+    .attr("stroke", lineColor)
+    .attr("stroke-width", (d) => lineWidthForDelayCount(d.delayCount));
 }
 
 export function appendTrainStations(
   g: d3.Selection<SVGGElement, undefined, null, undefined>,
-  visibleStations: Station[] = stations,
+  visibleStations: Station[] = icStations,
+  radius = 0.5,
+  fill = COLORS.TRAINS.STATIONS,
 ) {
-  return g
-    .selectAll("circle")
+  const baseIconSize = radius * 2.4;
+  const iconOpacity = opacityForStationFill(fill);
+  const renderKey = `${radius}|${fill}|${visibleStations
+    .map((station) => station.eva)
+    .join(",")}`;
+  const selection = g
+    .selectAll<SVGImageElement, Station>("image.train-station-icon")
     .data(visibleStations, (d) => (d as Station).name)
-    .join("circle")
-    .attr("cx", (d) => projection(d.coords as [number, number])![0])
-    .attr("cy", (d) => projection(d.coords as [number, number])![1])
-    .attr("r", ".5")
-    .attr("fill", COLORS.TRAINS.STATIONS);
+    .join("image")
+    .attr("class", "train-station-icon");
+
+  if (g.attr("data-station-render-key") === renderKey) {
+    return selection;
+  }
+
+  g.attr("data-station-render-key", renderKey);
+
+  return selection
+    .attr("href", (d) => stationIconForQuayCount(d.quay_count))
+    .attr("x", (d) => {
+      const iconSize = baseIconSize * stationIconSizeMultiplier(d.quay_count);
+
+      return (projectedStationPoint(d)?.[0] ?? 0) - iconSize / 2;
+    })
+    .attr("y", (d) => {
+      const iconSize = baseIconSize * stationIconSizeMultiplier(d.quay_count);
+
+      return (projectedStationPoint(d)?.[1] ?? 0) - iconSize / 2;
+    })
+    .attr(
+      "width",
+      (d) => baseIconSize * stationIconSizeMultiplier(d.quay_count),
+    )
+    .attr(
+      "height",
+      (d) => baseIconSize * stationIconSizeMultiplier(d.quay_count),
+    )
+    .attr("preserveAspectRatio", "xMidYMid meet")
+    .attr("opacity", iconOpacity)
+    .attr("data-station-opacity", iconOpacity);
 }
 
-export async function loadStations() {
-  const stations = await d3.csv("/data/bahn/csv/stations.csv", (d) => ({
-    name: d.name,
-    eva: +d.eva,
-    coords: [
-      +d.lon, // longitude first
-      +d.lat, // latitude second
-    ],
-  }));
-  return stations;
+export async function loadIcStations() {
+  // TODO: Pull out link root into global scope
+  return d3.csv("/data/bahn/csv/stations-ic.csv", parseStationRow);
+}
+
+export async function loadLocalStations() {
+  // TODO: Pull out link root into global scope
+  return d3.csv("/data/bahn/csv/stations-train.csv", parseStationRow);
 }
 
 // Real German stations (lon, lat)
-export const stations = await loadStations();
+export const icStations = await loadIcStations();
+export const localStations = await loadLocalStations();
 
-export const connections = [];
-export const trips = await d3
-  .csv("/data/bahn/csv/delays/2021-09-08.csv", (d) => ({
-    trip_id: d.trip_id,
-    stop_id: d.stop_id,
-    stop_sequence: +d.stop_sequence,
-    delay: +d.delay,
-  }))
-  .then((data) => {
-    const trips = d3.group(data, (d) => d.trip_id);
-    const tripList = Array.from(trips, ([trip_id, stops]) => ({
-      trip_id,
-      stops: stops
-        .sort((a, b) => a.stop_sequence - b.stop_sequence)
-        .map((d) => ({
-          stop_id: +d.stop_id,
-          stop_sequence: d.stop_sequence,
-          delay: d.delay,
-        })),
-    }));
-    return tripList;
+export type Connection = {
+  source: Station;
+  target: Station;
+  delay: number;
+  delayCount: number;
+};
+
+export type DelayDirection = "incoming" | "outgoing" | "both";
+
+export type StationDelayImpactStats = {
+  station: Station;
+  delayCount: number;
+  weightedDelay: number;
+};
+
+export type StationDelayAddedStats = {
+  station: Station;
+  delayAdded: number;
+  entriesCount: number;
+  incomingEntriesCount: number;
+  outgoingEntriesCount: number;
+  incomingAvgDelay: number | null;
+  outgoingAvgDelay: number | null;
+};
+
+type DelayConnectionAggregate = {
+  source: Station;
+  target: Station;
+  weightedDelay: number;
+  delayCount: number;
+};
+
+const stationByEva = new Map(
+  [...localStations, ...icStations].map((station) => [station.eva, station]),
+);
+const projectedStationPoints = new Map<number, [number, number] | null>();
+const colorLabCache = new Map<string, d3.LabColor>();
+
+function projectedStationPoint(station: Station) {
+  if (!projectedStationPoints.has(station.eva)) {
+    projectedStationPoints.set(
+      station.eva,
+      projection(station.coords as [number, number]),
+    );
+  }
+
+  return projectedStationPoints.get(station.eva) ?? null;
+}
+
+function colorLab(color: string) {
+  let lab = colorLabCache.get(color);
+
+  if (!lab) {
+    lab = d3.lab(color);
+    colorLabCache.set(color, lab);
+  }
+
+  return lab;
+}
+const delayRowsByUrl = new Map<string, Promise<DelayTrip[]>>();
+const delaySummariesByUrl = new Map<string, Promise<DelaySummary[]>>();
+type MonthlyDelayTrip = { date: string; trip: DelayTrip };
+type DelayBundleManifest = {
+  version: number;
+  ic: string[];
+  non_ic: Record<string, { path: string; months: string[] }>;
+};
+const monthlyDelayRowsByUrl = new Map<
+  string,
+  Promise<MonthlyDelayTrip[]>
+>();
+const delayRangeDatasetCache = new Map<
+  string,
+  Promise<DelayRangeDataset>
+>();
+let delayBundleManifestPromise: Promise<DelayBundleManifest | null> | null =
+  null;
+let availableDelayDatesPromise: Promise<Set<string>> | null = null;
+const MONTHLY_BUNDLE_RANGE_DAYS = 31;
+const MAX_DELAY_RANGE_CACHE_ENTRIES = 6;
+
+function parseDelayRow(d: Record<string, string | undefined>): DelayTrip {
+  return {
+    from_stop_id: Number(d.from_stop_id),
+    to_stop_id: Number(d.to_stop_id),
+    delay_count: Number(d.delay_count),
+    avg_delay: Number(d.avg_delay),
+    entries_count: Number(d.entries_count),
+  };
+}
+
+function parseMonthlyDelayRow(
+  d: Record<string, string | undefined>,
+): MonthlyDelayTrip {
+  return {
+    date: d.date ?? "",
+    trip: parseDelayRow(d),
+  };
+}
+
+function parseDelaySummaryRow(
+  d: Record<string, string | undefined>,
+): DelaySummary {
+  return {
+    region_name: d.region_name ?? "",
+    date: d.date ?? "",
+  };
+}
+
+function loadAvailableDelayDates() {
+  availableDelayDatesPromise ??= d3
+    .json<string[]>("/data/bahn/csv/delays/dates.json")
+    .then((dates) => new Set(dates ?? []));
+
+  return availableDelayDatesPromise;
+}
+
+function loadDelayRows(url: string) {
+  const cachedRows = delayRowsByUrl.get(url);
+
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const rows = d3.csv(url, parseDelayRow).catch(() => []);
+  delayRowsByUrl.set(url, rows);
+
+  return rows;
+}
+
+function loadMonthlyDelayRows(url: string) {
+  const cachedRows = monthlyDelayRowsByUrl.get(url);
+
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const rows = d3.csv(url, parseMonthlyDelayRow).catch(() => []);
+  monthlyDelayRowsByUrl.set(url, rows);
+
+  return rows;
+}
+
+function loadDelayBundleManifest() {
+  delayBundleManifestPromise ??= d3
+    .json<DelayBundleManifest>("/data/bahn/optimized/delays/manifest.json")
+    .then((manifest) => manifest ?? null)
+    .catch(() => null);
+
+  return delayBundleManifestPromise;
+}
+
+function loadDelaySummaryRows(date: string) {
+  const url = `/data/bahn/csv/delays/summaries/summary-${date}.csv`;
+  const cachedRows = delaySummariesByUrl.get(url);
+
+  if (cachedRows) {
+    return cachedRows;
+  }
+
+  const rows = d3.csv(url, parseDelaySummaryRow).catch(() => []);
+  delaySummariesByUrl.set(url, rows);
+
+  return rows;
+}
+
+function delayDatesInRange(availableDates: Set<string>, range: DelayDateRange) {
+  return Array.from(availableDates)
+    .filter((date) => date >= range.from && date <= range.to)
+    .sort();
+}
+
+function rangeDayCount(range: DelayDateRange) {
+  const from = new Date(`${range.from}T12:00:00`).getTime();
+  const to = new Date(`${range.to}T12:00:00`).getTime();
+
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    return 0;
+  }
+
+  return Math.floor(Math.abs(to - from) / 86_400_000) + 1;
+}
+
+function monthsForDates(dates: string[]) {
+  return Array.from(new Set(dates.map((date) => date.slice(0, 7)))).sort();
+}
+
+function delayRegionPathSegment(regionName: string) {
+  return encodeURIComponent(regionName);
+}
+
+function delayCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.delay_count) && trip.delay_count > 0
+    ? trip.delay_count
+    : 0;
+}
+
+function entriesCountForTrip(trip: DelayTrip) {
+  return Number.isFinite(trip.entries_count) && trip.entries_count > 0
+    ? trip.entries_count
+    : 0;
+}
+
+function orderedStationPair(source: Station, target: Station) {
+  return source.eva <= target.eva
+    ? { source, target }
+    : { source: target, target: source };
+}
+
+function addTripToConnectionAggregate(
+  connectionsByEdge: Map<string, DelayConnectionAggregate>,
+  source: Station,
+  target: Station,
+  trip: DelayTrip,
+  delayCount: number,
+) {
+  const ordered = orderedStationPair(source, target);
+  const key = `${ordered.source.eva}-${ordered.target.eva}`;
+  const current = connectionsByEdge.get(key);
+
+  if (current) {
+    current.weightedDelay += trip.avg_delay * delayCount;
+    current.delayCount += delayCount;
+  } else {
+    connectionsByEdge.set(key, {
+      source: ordered.source,
+      target: ordered.target,
+      weightedDelay: trip.avg_delay * delayCount,
+      delayCount,
+    });
+  }
+}
+
+export function aggregateDelayConnections(trips: DelayTrip[]) {
+  const connectionsByEdge = new Map<string, DelayConnectionAggregate>();
+
+  trips.forEach((trip) => {
+    const source = stationByEva.get(trip.from_stop_id);
+    const target = stationByEva.get(trip.to_stop_id);
+    const delayCount = delayCountForTrip(trip);
+
+    if (
+      !source ||
+      !target ||
+      !Number.isFinite(trip.avg_delay) ||
+      delayCount <= 0
+    ) {
+      return;
+    }
+
+    addTripToConnectionAggregate(
+      connectionsByEdge,
+      source,
+      target,
+      trip,
+      delayCount,
+    );
   });
+
+  return Array.from(connectionsByEdge.values()).map(
+    ({ source, target, weightedDelay, delayCount }) => ({
+      source,
+      target,
+      delay: weightedDelay / delayCount,
+      delayCount,
+    }),
+  );
+}
+
+export function buildStationDelayImpactStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+  direction: DelayDirection,
+) {
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const visibleConnections = aggregateDelayConnections(trips).filter(
+    (connection) =>
+      visibleStationsByEva.has(connection.source.eva) &&
+      visibleStationsByEva.has(connection.target.eva),
+  );
+
+  const statsByEva = new Map<number, StationDelayImpactStats>();
+  function addConnection(station: Station, connection: Connection) {
+    const current =
+      statsByEva.get(station.eva) ??
+      ({
+        station,
+        delayCount: 0,
+        weightedDelay: 0,
+      } satisfies StationDelayImpactStats);
+
+    current.delayCount += connection.delayCount;
+    current.weightedDelay += connection.delay * connection.delayCount;
+    statsByEva.set(station.eva, current);
+  }
+
+  visibleConnections.forEach((connection) => {
+    const isSelfConnection = connection.source.eva === connection.target.eva;
+
+    if (direction === "both") {
+      addConnection(connection.source, connection);
+
+      if (!isSelfConnection) {
+        addConnection(connection.target, connection);
+      }
+
+      return;
+    }
+
+    if (isSelfConnection) {
+      return;
+    }
+
+    if (direction === "outgoing") {
+      addConnection(connection.source, connection);
+    }
+
+    if (direction === "incoming") {
+      addConnection(connection.target, connection);
+    }
+  });
+
+  return statsByEva;
+}
+
+export function buildStationDelayAddedStats(
+  trips: DelayTrip[],
+  visibleStations: Station[],
+) {
+  type DirectionStats = {
+    entriesCount: number;
+    weightedDelay: number;
+  };
+  type StationAccumulator = {
+    station: Station;
+    incoming: DirectionStats;
+    outgoing: DirectionStats;
+  };
+
+  const visibleStationsByEva = new Map(
+    visibleStations.map((station) => [station.eva, station]),
+  );
+  const statsByEva = new Map<number, StationAccumulator>();
+
+  function stationStats(station: Station) {
+    let stats = statsByEva.get(station.eva);
+
+    if (!stats) {
+      stats = {
+        station,
+        incoming: { entriesCount: 0, weightedDelay: 0 },
+        outgoing: { entriesCount: 0, weightedDelay: 0 },
+      };
+      statsByEva.set(station.eva, stats);
+    }
+
+    return stats;
+  }
+
+  trips.forEach((trip) => {
+    if (
+      trip.from_stop_id === trip.to_stop_id ||
+      !Number.isFinite(trip.avg_delay)
+    ) {
+      return;
+    }
+
+    const entriesCount = entriesCountForTrip(trip);
+
+    if (entriesCount <= 0) {
+      return;
+    }
+
+    const source = visibleStationsByEva.get(trip.from_stop_id);
+    const target = visibleStationsByEva.get(trip.to_stop_id);
+
+    if (!source || !target) {
+      return;
+    }
+
+    const weightedDelay = trip.avg_delay * entriesCount;
+    const sourceStats = stationStats(source);
+    const targetStats = stationStats(target);
+
+    sourceStats.outgoing.entriesCount += entriesCount;
+    sourceStats.outgoing.weightedDelay += weightedDelay;
+    targetStats.incoming.entriesCount += entriesCount;
+    targetStats.incoming.weightedDelay += weightedDelay;
+  });
+
+  const result = new Map<number, StationDelayAddedStats>();
+
+  statsByEva.forEach((stats, eva) => {
+    const incomingAvgDelay =
+      stats.incoming.entriesCount > 0
+        ? stats.incoming.weightedDelay / stats.incoming.entriesCount
+        : null;
+    const outgoingAvgDelay =
+      stats.outgoing.entriesCount > 0
+        ? stats.outgoing.weightedDelay / stats.outgoing.entriesCount
+        : null;
+
+    let delayAdded: number | null = null;
+
+    if (incomingAvgDelay !== null && outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay - incomingAvgDelay;
+    } else if (outgoingAvgDelay !== null) {
+      delayAdded = outgoingAvgDelay;
+    } else if (incomingAvgDelay !== null) {
+      delayAdded = incomingAvgDelay;
+    }
+
+    if (delayAdded === null || !Number.isFinite(delayAdded)) {
+      return;
+    }
+
+    result.set(eva, {
+      station: stats.station,
+      delayAdded,
+      entriesCount: stats.incoming.entriesCount + stats.outgoing.entriesCount,
+      incomingEntriesCount: stats.incoming.entriesCount,
+      outgoingEntriesCount: stats.outgoing.entriesCount,
+      incomingAvgDelay,
+      outgoingAvgDelay,
+    });
+  });
+
+  return result;
+}
+
+export async function loadDelayConnections(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  return (await loadDelayRangeDataset(range, nonIcRegions)).rangeConnections;
+}
+
+async function loadDelayTripsPerDayFromDailyFiles(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  const availableDates = await loadAvailableDelayDates();
+  const dates = delayDatesInRange(availableDates, range);
+  const regionNames = Array.from(new Set(nonIcRegions)).sort();
+  const regionNameSet = new Set(regionNames);
+
+  const results: { [date: string]: DelayTrip[] } = {};
+
+  await Promise.all(
+    dates.map(async (date) => {
+      const icUrl = `/data/bahn/csv/delays/ic/${date}.csv`;
+      const nonIcUrls =
+        regionNames.length > 0
+          ? (await loadDelaySummaryRows(date))
+              .filter((summary) => regionNameSet.has(summary.region_name))
+              .map(
+                (summary) =>
+                  `/data/bahn/csv/delays/non_ic/${delayRegionPathSegment(summary.region_name)}/${summary.date}.csv`,
+              )
+          : [];
+
+      const urls = [icUrl, ...nonIcUrls];
+      const delayRows = await Promise.all(
+        urls.map((url) => loadDelayRows(url)),
+      );
+
+      results[date] = delayRows.flat();
+    }),
+  );
+
+  return results;
+}
+
+async function loadDelayTripsPerDayFromMonthlyBundles(
+  range: DelayDateRange,
+  nonIcRegions: string[],
+  manifest: DelayBundleManifest,
+) {
+  const availableDates = await loadAvailableDelayDates();
+  const dates = delayDatesInRange(availableDates, range);
+  const dateSet = new Set(dates);
+  const months = monthsForDates(dates);
+  const rowsByUrl: Array<Promise<MonthlyDelayTrip[]>> = [];
+
+  months.forEach((month) => {
+    if (manifest.ic.includes(month)) {
+      rowsByUrl.push(
+        loadMonthlyDelayRows(`/data/bahn/optimized/delays/ic/${month}.csv`),
+      );
+    }
+  });
+
+  Array.from(new Set(nonIcRegions))
+    .sort()
+    .forEach((regionName) => {
+      const region = manifest.non_ic[regionName];
+
+      if (!region) {
+        return;
+      }
+
+      months.forEach((month) => {
+        if (region.months.includes(month)) {
+          rowsByUrl.push(
+            loadMonthlyDelayRows(
+              `/data/bahn/optimized/delays/non_ic/${region.path}/${month}.csv`,
+            ),
+          );
+        }
+      });
+    });
+
+  const results: { [date: string]: DelayTrip[] } = Object.fromEntries(
+    dates.map((date) => [date, []]),
+  );
+  const monthlyRows = await Promise.all(rowsByUrl);
+
+  monthlyRows.forEach((rows) => {
+    rows.forEach(({ date, trip }) => {
+      if (dateSet.has(date)) {
+        results[date].push(trip);
+      }
+    });
+  });
+
+  return results;
+}
+
+function delayRangeDatasetKey(
+  range: DelayDateRange,
+  nonIcRegions: string[],
+) {
+  return [range.from, range.to, ...Array.from(new Set(nonIcRegions)).sort()].join(
+    "|",
+  );
+}
+
+function trimDelayRangeDatasetCache() {
+  while (delayRangeDatasetCache.size > MAX_DELAY_RANGE_CACHE_ENTRIES) {
+    const oldestKey = delayRangeDatasetCache.keys().next().value;
+
+    if (oldestKey === undefined) {
+      return;
+    }
+
+    delayRangeDatasetCache.delete(oldestKey);
+  }
+}
+
+export async function loadDelayRangeDataset(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+): Promise<DelayRangeDataset> {
+  const key = delayRangeDatasetKey(range, nonIcRegions);
+  const cachedDataset = delayRangeDatasetCache.get(key);
+
+  if (cachedDataset) {
+    delayRangeDatasetCache.delete(key);
+    delayRangeDatasetCache.set(key, cachedDataset);
+    return cachedDataset;
+  }
+
+  const datasetPromise = (async () => {
+    const manifest =
+      rangeDayCount(range) > MONTHLY_BUNDLE_RANGE_DAYS
+        ? await loadDelayBundleManifest()
+        : null;
+    const tripsByDate = manifest
+      ? await loadDelayTripsPerDayFromMonthlyBundles(
+          range,
+          nonIcRegions,
+          manifest,
+        )
+      : await loadDelayTripsPerDayFromDailyFiles(range, nonIcRegions);
+    const connectionsByDate = Object.fromEntries(
+      Object.entries(tripsByDate).map(([date, trips]) => [
+        date,
+        aggregateDelayConnections(trips),
+      ]),
+    );
+    const rangeTrips = Object.values(tripsByDate).flat();
+    const rangeConnections = aggregateDelayConnections(rangeTrips);
+
+    return { tripsByDate, connectionsByDate, rangeTrips, rangeConnections };
+  })();
+
+  delayRangeDatasetCache.set(key, datasetPromise);
+  trimDelayRangeDatasetCache();
+
+  try {
+    return await datasetPromise;
+  } catch (error) {
+    delayRangeDatasetCache.delete(key);
+    throw error;
+  }
+}
+
+export async function loadDelayTripsPerDay(
+  range: DelayDateRange,
+  nonIcRegions: string[] = [],
+) {
+  return (await loadDelayRangeDataset(range, nonIcRegions)).tripsByDate;
+}

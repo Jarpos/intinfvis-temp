@@ -18,6 +18,7 @@ export const map_svg = d3.create("svg")
 
 export const tooltip = d3.create("div")
     .style("position", "absolute")
+    .style("z-index", "3000")
     .style("pointer-events", "none")
     .style("background", COLORS.TOOLTIP.BACKGROUND)
     .style("padding", "4px 8px")

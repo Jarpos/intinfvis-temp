@@ -1,13 +1,16 @@
 import * as d3 from "d3";
 
 import { HEIGHT, WIDTH } from "../config";
-import { geojson, projection } from "./geo";
+import { projection } from "./geo";
 
 const API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
-const DAYS_AROUND_SELECTED_DATE = 2;
 const GRID_COLUMNS = 7;
 const GRID_ROWS = 8;
 const CONTOUR_CELL_SIZE = 16;
+const projectedPointsByDataset = new WeakMap<
+  WeatherDataset,
+  Array<[number, number]>
+>();
 
 export type WeatherPoint = {
   name: string;
@@ -18,13 +21,23 @@ export type WeatherPoint = {
 export type WeatherHour = {
   time: Date;
   label: string;
-  values: number[];
+  temperature_2m: number[];
+  precipitation: number[];
+  snow_depth: number[];
 };
 
 export type WeatherDataset = {
   points: WeatherPoint[];
   hours: WeatherHour[];
+  fromDate: Date;
+  toDate: Date;
   selectedDate: Date;
+};
+
+export type WeatherDateRange = {
+  from: Date;
+  to: Date;
+  selected?: Date;
 };
 
 export type TemperatureCell = {
@@ -32,9 +45,57 @@ export type TemperatureCell = {
   y: number;
   size: number;
   temperature: number;
+  rawValue: number;
 };
 
 export const TEMPERATURE_RANGE = [-40, 50] as const;
+
+export interface WeatherVariableConfig {
+  key: "temperature_2m" | "precipitation" | "snow_depth";
+  label: string;
+  unit: string;
+  min: number;
+  max: number;
+  ticks: number[];
+}
+
+export const WEATHER_VARIABLES: Record<
+  "temperature_2m" | "precipitation" | "snow_depth",
+  WeatherVariableConfig
+> = {
+  temperature_2m: {
+    key: "temperature_2m",
+    label: "Temperature",
+    unit: "°C",
+    min: -40,
+    max: 50,
+    ticks: [50, 40, 30, 20, 10, 0, -10, -20, -30, -40],
+  },
+  precipitation: {
+    key: "precipitation",
+    label: "Precipitation",
+    unit: "mm",
+    min: 0,
+    max: 10,
+    ticks: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+  },
+  snow_depth: {
+    key: "snow_depth",
+    label: "Snow Depth",
+    unit: "cm",
+    min: 0,
+    max: 100,
+    ticks: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0],
+  },
+};
+
+export function mapValueToRamp(
+  value: number,
+  config: WeatherVariableConfig,
+): number {
+  const clamped = Math.max(config.min, Math.min(config.max, value));
+  return -40 + ((clamped - config.min) / (config.max - config.min)) * 90;
+}
 
 const temperatureRamp = d3
   .scaleLinear<string>()
@@ -85,37 +146,137 @@ export const contourThresholds = d3.range(
   1,
 );
 
-const germanyPolygon = geojson as GeoJSON.FeatureCollection<GeoJSON.Geometry>;
-
-const pointInGermany = (longitude: number, latitude: number) =>
-  geojson.features.some((feature) =>
-    d3.geoContains(feature as GeoJSON.Feature, [longitude, latitude]),
-  );
+//Replaced the dynamic calculation of coordinates in buildWeatherGrid (which parsed a 5MB GeoJSON and executed 56 d3.geoContains checks on highly complex polygons at runtime) with a static array containing the 25 precomputed coordinates that fall inside Germany.
+const PRECOMPUTED_WEATHER_POINTS: WeatherPoint[] = [
+  {
+    name: "48.38, 8.93",
+    latitude: 48.382240299066346,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "48.38, 10.45",
+    latitude: 48.382240299066346,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "48.38, 11.98",
+    latitude: 48.382240299066346,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "49.49, 7.40",
+    latitude: 49.49462128416791,
+    longitude: 7.399368127187235,
+  },
+  {
+    name: "49.49, 8.93",
+    latitude: 49.49462128416791,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "49.49, 10.45",
+    latitude: 49.49462128416791,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "49.49, 11.98",
+    latitude: 49.49462128416791,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "50.61, 7.40",
+    latitude: 50.60700226926947,
+    longitude: 7.399368127187235,
+  },
+  {
+    name: "50.61, 8.93",
+    latitude: 50.60700226926947,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "50.61, 10.45",
+    latitude: 50.60700226926947,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "50.61, 11.98",
+    latitude: 50.60700226926947,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "51.72, 7.40",
+    latitude: 51.71938325437103,
+    longitude: 7.399368127187235,
+  },
+  {
+    name: "51.72, 8.93",
+    latitude: 51.71938325437103,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "51.72, 10.45",
+    latitude: 51.71938325437103,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "51.72, 11.98",
+    latitude: 51.71938325437103,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "51.72, 13.51",
+    latitude: 51.71938325437103,
+    longitude: 13.510363737742136,
+  },
+  {
+    name: "52.83, 7.40",
+    latitude: 52.83176423947259,
+    longitude: 7.399368127187235,
+  },
+  {
+    name: "52.83, 8.93",
+    latitude: 52.83176423947259,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "52.83, 10.45",
+    latitude: 52.83176423947259,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "52.83, 11.98",
+    latitude: 52.83176423947259,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "52.83, 13.51",
+    latitude: 52.83176423947259,
+    longitude: 13.510363737742136,
+  },
+  {
+    name: "53.94, 8.93",
+    latitude: 53.94414522457416,
+    longitude: 8.92711702982596,
+  },
+  {
+    name: "53.94, 10.45",
+    latitude: 53.94414522457416,
+    longitude: 10.454865932464685,
+  },
+  {
+    name: "53.94, 11.98",
+    latitude: 53.94414522457416,
+    longitude: 11.982614835103409,
+  },
+  {
+    name: "53.94, 13.51",
+    latitude: 53.94414522457416,
+    longitude: 13.510363737742136,
+  },
+];
 
 function buildWeatherGrid(): WeatherPoint[] {
-  const bounds = d3.geoBounds(germanyPolygon);
-  const [[minLongitude, minLatitude], [maxLongitude, maxLatitude]] = bounds;
-  const points: WeatherPoint[] = [];
-
-  for (let row = 0; row < GRID_ROWS; row += 1) {
-    for (let column = 0; column < GRID_COLUMNS; column += 1) {
-      const longitude =
-        minLongitude +
-        (column / (GRID_COLUMNS - 1)) * (maxLongitude - minLongitude);
-      const latitude =
-        minLatitude + (row / (GRID_ROWS - 1)) * (maxLatitude - minLatitude);
-
-      if (pointInGermany(longitude, latitude)) {
-        points.push({
-          name: `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`,
-          latitude,
-          longitude,
-        });
-      }
-    }
-  }
-
-  return points;
+  return PRECOMPUTED_WEATHER_POINTS;
 }
 
 export const toDateInputValue = (date: Date) => {
@@ -135,9 +296,9 @@ const endOfDay = (date: Date) => {
 };
 
 const addDays = (date: Date, days: number) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
+  const next = startOfDay(date);
+  next.setDate(next.getDate() + days);
+  return next;
 };
 
 const startOfCurrentHour = () => {
@@ -146,28 +307,29 @@ const startOfCurrentHour = () => {
   return date;
 };
 
-function getWeatherWindow(selectedDate: Date) {
+function getWeatherWindow(range: WeatherDateRange) {
   const currentHour = startOfCurrentHour();
-  const selectedDay = startOfDay(selectedDate);
-  const start = startOfDay(addDays(selectedDay, -DAYS_AROUND_SELECTED_DATE));
-  const requestedEnd = endOfDay(
-    addDays(selectedDay, DAYS_AROUND_SELECTED_DATE),
-  );
+  const selectedDay = startOfDay(range.selected ?? range.from);
+  const rangeStart = startOfDay(range.from);
+  const rangeEnd = startOfDay(range.to);
+  const start = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+  const requestedEnd = endOfDay(rangeStart <= rangeEnd ? rangeEnd : rangeStart);
   const end = requestedEnd > currentHour ? currentHour : requestedEnd;
+  const requestStart = addDays(start, -1);
 
-  return { start, end, selectedDay };
+  return { start, end, requestStart, selectedDay };
 }
 
-function buildWeatherUrl(points: WeatherPoint[], selectedDate: Date) {
-  const { start, end } = getWeatherWindow(selectedDate);
+function buildWeatherUrl(points: WeatherPoint[], range: WeatherDateRange) {
+  const { requestStart, end } = getWeatherWindow(range);
 
   const params = new URLSearchParams({
     latitude: points.map((point) => point.latitude.toFixed(4)).join(","),
     longitude: points.map((point) => point.longitude.toFixed(4)).join(","),
-    hourly: "temperature_2m",
+    daily: "temperature_2m_mean,precipitation_sum,snowfall_sum",
     temperature_unit: "celsius",
     timezone: "Europe/Berlin",
-    start_date: toDateInputValue(start),
+    start_date: toDateInputValue(requestStart),
     end_date: toDateInputValue(end),
     models: "icon_d2",
   });
@@ -176,9 +338,11 @@ function buildWeatherUrl(points: WeatherPoint[], selectedDate: Date) {
 }
 
 type OpenMeteoLocationResponse = {
-  hourly?: {
+  daily?: {
     time?: string[];
-    temperature_2m?: Array<number | null>;
+    temperature_2m_mean?: Array<number | null>;
+    precipitation_sum?: Array<number | null>;
+    snowfall_sum?: Array<number | null>;
   };
   reason?: string;
 };
@@ -187,12 +351,12 @@ const normalizeResponses = (
   data: OpenMeteoLocationResponse | OpenMeteoLocationResponse[],
 ) => (Array.isArray(data) ? data : [data]);
 
-export async function loadHistoricalTemperatures(
-  selectedDate = new Date(),
+async function loadHistoricalTemperaturesUncached(
+  range: WeatherDateRange = { from: new Date(), to: new Date() },
 ): Promise<WeatherDataset> {
   const points = buildWeatherGrid();
-  const { start, end, selectedDay } = getWeatherWindow(selectedDate);
-  const response = await fetch(buildWeatherUrl(points, selectedDay));
+  const { start, end, selectedDay } = getWeatherWindow(range);
+  const response = await fetch(buildWeatherUrl(points, range));
 
   if (!response.ok) {
     throw new Error(`Open-Meteo returned ${response.status}`);
@@ -209,58 +373,153 @@ export async function loadHistoricalTemperatures(
     throw new Error(failedLocation.reason);
   }
 
-  const currentHour = startOfCurrentHour();
-  const timeline = locations[0]?.hourly?.time ?? [];
+  const currentDay = startOfDay(startOfCurrentHour());
+  const timeline = locations[0]?.daily?.time ?? [];
   const hours = timeline
     .map((label, timeIndex) => {
-      const time = new Date(label);
-      const values = locations.map(
+      const time = new Date(`${label}T12:00:00`);
+      const temperature_2m = locations.map(
         (location) =>
-          location.hourly?.temperature_2m?.[timeIndex] ?? Number.NaN,
+          location.daily?.temperature_2m_mean?.[timeIndex] ?? Number.NaN,
       );
-      return { time, label, values };
+      const precipitation = locations.map(
+        (location) =>
+          location.daily?.precipitation_sum?.[timeIndex] ?? Number.NaN,
+      );
+      const snow_depth = locations.map(
+        (location) => location.daily?.snowfall_sum?.[timeIndex] ?? Number.NaN,
+      );
+      return { time, label, temperature_2m, precipitation, snow_depth };
     })
-    .filter(
-      (hour) =>
-        hour.time >= start &&
-        hour.time <= end &&
-        hour.time <= currentHour &&
-        hour.values.some(Number.isFinite),
-    );
+    .filter((hour) => {
+      const day = startOfDay(hour.time);
 
-  return { points, hours, selectedDate: selectedDay };
+      return (
+        day >= start &&
+        day <= end &&
+        day <= currentDay &&
+        (hour.temperature_2m.some(Number.isFinite) ||
+          hour.precipitation.some(Number.isFinite) ||
+          hour.snow_depth.some(Number.isFinite))
+      );
+    });
+
+  return {
+    points,
+    hours,
+    fromDate: start,
+    toDate: end,
+    selectedDate: selectedDay,
+  };
 }
 
-function interpolateTemperature(
+const historicalWeatherCache = new Map<string, Promise<WeatherDataset>>();
+const MAX_HISTORICAL_WEATHER_CACHE_ENTRIES = 4;
+
+export async function loadHistoricalTemperatures(
+  range: WeatherDateRange = { from: new Date(), to: new Date() },
+): Promise<WeatherDataset> {
+  const { start, end, selectedDay } = getWeatherWindow(range);
+  const key = `${toDateInputValue(start)}|${toDateInputValue(end)}`;
+  let datasetPromise = historicalWeatherCache.get(key);
+
+  if (datasetPromise) {
+    historicalWeatherCache.delete(key);
+    historicalWeatherCache.set(key, datasetPromise);
+  } else {
+    datasetPromise = loadHistoricalTemperaturesUncached(range);
+    historicalWeatherCache.set(key, datasetPromise);
+
+    while (
+      historicalWeatherCache.size > MAX_HISTORICAL_WEATHER_CACHE_ENTRIES
+    ) {
+      const oldestKey = historicalWeatherCache.keys().next().value;
+
+      if (oldestKey === undefined) {
+        break;
+      }
+
+      historicalWeatherCache.delete(oldestKey);
+    }
+  }
+
+  try {
+    const dataset = await datasetPromise;
+    return { ...dataset, selectedDate: selectedDay };
+  } catch (error) {
+    historicalWeatherCache.delete(key);
+    throw error;
+  }
+}
+
+export function interpolateWeatherValue(
   x: number,
   y: number,
   projectedPoints: Array<[number, number]>,
-  temperatures: number[],
+  values: number[],
 ) {
   let weightedSum = 0;
   let totalWeight = 0;
 
   projectedPoints.forEach(([pointX, pointY], index) => {
-    const temperature = temperatures[index];
+    const value = values[index];
 
-    if (!Number.isFinite(temperature)) {
+    if (!Number.isFinite(value)) {
       return;
     }
 
     const distanceSquared = (x - pointX) ** 2 + (y - pointY) ** 2;
 
     if (distanceSquared < 1) {
-      weightedSum = temperature;
+      weightedSum = value;
       totalWeight = 1;
       return;
     }
 
     const weight = 1 / distanceSquared;
-    weightedSum += temperature * weight;
+    weightedSum += value * weight;
     totalWeight += weight;
   });
 
   return totalWeight === 0 ? Number.NaN : weightedSum / totalWeight;
+}
+
+export function interpolateWeatherValueAtCoordinate(
+  dataset: WeatherDataset,
+  hour: WeatherHour,
+  variableKey:
+    | "temperature_2m"
+    | "precipitation"
+    | "snow_depth" = "temperature_2m",
+  coordinate: [number, number],
+) {
+  const stationPoint = projection(coordinate);
+
+  if (!stationPoint) {
+    return Number.NaN;
+  }
+
+  const projectedPoints = projectedWeatherPoints(dataset);
+
+  return interpolateWeatherValue(
+    stationPoint[0],
+    stationPoint[1],
+    projectedPoints,
+    hour[variableKey],
+  );
+}
+
+function projectedWeatherPoints(dataset: WeatherDataset) {
+  let projectedPoints = projectedPointsByDataset.get(dataset);
+
+  if (!projectedPoints) {
+    projectedPoints = dataset.points
+      .map((point) => projection([point.longitude, point.latitude]))
+      .filter((point): point is [number, number] => point !== null);
+    projectedPointsByDataset.set(dataset, projectedPoints);
+  }
+
+  return projectedPoints;
 }
 
 export function buildTemperatureContours(
@@ -269,16 +528,16 @@ export function buildTemperatureContours(
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
-  const projectedPoints = dataset.points
-    .map((point) => projection([point.longitude, point.latitude]))
-    .filter((point): point is [number, number] => point !== null);
+  const projectedPoints = projectedWeatherPoints(dataset);
   const values: number[] = [];
 
   for (let row = 0; row < gridHeight; row += 1) {
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      values.push(interpolateTemperature(x, y, projectedPoints, hour.values));
+      values.push(
+        interpolateWeatherValue(x, y, projectedPoints, hour.temperature_2m),
+      );
     }
   }
 
@@ -299,27 +558,33 @@ export function buildTemperatureContours(
 export function buildTemperatureCells(
   dataset: WeatherDataset,
   hour: WeatherHour,
+  variableKey:
+    | "temperature_2m"
+    | "precipitation"
+    | "snow_depth" = "temperature_2m",
 ) {
   const gridWidth = Math.ceil(WIDTH / CONTOUR_CELL_SIZE);
   const gridHeight = Math.ceil(HEIGHT / CONTOUR_CELL_SIZE);
-  const projectedPoints = dataset.points
-    .map((point) => projection([point.longitude, point.latitude]))
-    .filter((point): point is [number, number] => point !== null);
+  const projectedPoints = projectedWeatherPoints(dataset);
   const cells: TemperatureCell[] = [];
+
+  const rawValues = hour[variableKey];
+  const config = WEATHER_VARIABLES[variableKey];
 
   for (let row = 0; row < gridHeight; row += 1) {
     for (let column = 0; column < gridWidth; column += 1) {
       const x = column * CONTOUR_CELL_SIZE;
       const y = row * CONTOUR_CELL_SIZE;
-      const temperature = interpolateTemperature(
+      const rawValue = interpolateWeatherValue(
         x + CONTOUR_CELL_SIZE / 2,
         y + CONTOUR_CELL_SIZE / 2,
         projectedPoints,
-        hour.values,
+        rawValues,
       );
 
-      if (Number.isFinite(temperature)) {
-        cells.push({ x, y, size: CONTOUR_CELL_SIZE, temperature });
+      if (Number.isFinite(rawValue)) {
+        const temperature = mapValueToRamp(rawValue, config);
+        cells.push({ x, y, size: CONTOUR_CELL_SIZE, temperature, rawValue });
       }
     }
   }

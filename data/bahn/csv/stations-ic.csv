@@ -1,0 +1,286 @@
+eva,name,lat,lon,region_name,state_name,quay_count,mobility_accessibility,audible_accessibility,visual_accessibility,tactile_accessibility
+8000206,Koblenz Hbf,50.350929,7.588345,Koblenz,Rheinland-Pfalz,14,true,true,true,true
+8010406,Berlin Zoologischer Garten,52.5073407,13.3324447,Berlin,Berlin,0,0,0,0,0
+8000266,Wuppertal Hbf,51.254363,7.149543,Düsseldorf,Nordrhein-Westfalen,12,true,true,true,true
+8004610,Westerstede-Ocholt,53.202166,7.886468,Weser-Ems,Niedersachsen,5,false,true,true,true
+8010184,Chemnitz Hbf,50.839696,12.930877,Chemnitz,Sachsen,16,true,partial,true,true
+8003200,Kassel-Wilhelmshöhe,51.3125585,9.44711566,Kassel,Hessen,12,false,true,true,false
+8000036,Bielefeld Hbf,52.029261,8.532722,Detmold,Nordrhein-Westfalen,11,true,true,true,true
+8000107,Freiburg(Breisgau) Hbf,47.997697,7.84117,Freiburg,Baden-Württemberg,15,partial,true,true,partial
+8000286,Oberhausen Hbf,51.474878,6.851588,Düsseldorf,Nordrhein-Westfalen,15,false,true,true,false
+8000309,Regensburg Hbf,49.011672,12.099617,Oberpfalz,Bayern,11,true,true,true,true
+8001080,Bondorf(b Herrenberg),48.523552,8.827662,Stuttgart,Baden-Württemberg,5,true,true,true,true
+8013487,Oranienburg,52.753653,13.249613,Brandenburg,Brandenburg,0,0,0,0,0
+8010101,Erfurt Hbf,50.9723561,11.0379928,Thüringen,Thüringen,17,true,true,true,true
+8010220,Lübbenau(Spreewald),51.862169,13.9609,Brandenburg,Brandenburg,7,true,true,true,true
+8010306,Rudolstadt(Thür),50.7179313,11.3388991,Thüringen,Thüringen,5,false,true,true,false
+8079021,Maasbüll(b Niebüll),54.75445,8.812742,Schleswig-Holstein,Schleswig-Holstein,0,0,0,0,0
+8010085,Dresden Hbf,51.040563,13.732035,Dresden,Sachsen,24,partial,partial,true,partial
+8000284,Nürnberg Hbf,49.445616,11.082989,Mittelfranken,Bayern,34,true,true,true,true
+8000086,Duisburg Hbf,51.429785,6.775903,Düsseldorf,Nordrhein-Westfalen,18,partial,partial,true,partial
+8000029,Bebra,50.969568,9.797788,Kassel,Hessen,8,true,true,true,true
+8000227,Letmathe,51.362838,7.618397,Arnsberg,Nordrhein-Westfalen,5,partial,partial,true,partial
+8010338,Stralsund Hbf,54.308626,13.077321,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,9,true,true,true,true
+8000170,Ulm Hbf,48.3993985,9.98260796,Tübingen,Baden-Württemberg,17,partial,true,true,partial
+8002548,Hamburg Dammtor,53.560751,9.989566,Hamburg,Hamburg,6,true,true,true,true
+8011201,Flughafen BER,52.3648038,13.5119498,Brandenburg,Brandenburg,0,0,0,0,0
+8005609,Sonthofen,47.5132841,10.2720934,Schwaben,Bayern,4,false,true,true,false
+8001844,Erlangen,49.5958303,11.0016382,Mittelfranken,Bayern,7,true,true,true,true
+8003303,Klanxbüll,54.861997,8.676454,Schleswig-Holstein,Schleswig-Holstein,4,true,true,true,true
+8011160,Berlin Hbf,52.525592,13.369545,Berlin,Berlin,0,0,0,0,0
+8011113,Berlin Südkreuz,52.475047,13.365319,Berlin,Berlin,0,0,0,0,0
+8010097,Eisenach Hbf,50.976922,10.331986,Thüringen,Thüringen,9,true,true,true,true
+8000001,Aachen Hbf,50.7678,6.091499,Köln,Nordrhein-Westfalen,19,true,true,true,true
+8002166,Gäufelden,48.559661,8.850308,Stuttgart,Baden-Württemberg,3,true,true,true,true
+8000228,Lichtenfels,50.146452,11.059472,Oberfranken,Bayern,9,true,true,true,true
+8010193,Königs Wusterhausen,52.296635,13.631472,Brandenburg,Brandenburg,6,false,true,true,false
+8000009,Ansbach,49.298032,10.578239,Mittelfranken,Bayern,10,true,true,true,true
+8010115,Freiberg(Sachs),50.908725,13.344141,Chemnitz,Sachsen,6,true,true,true,true
+8010133,Jena-Göschwitz,50.883942,11.593537,Thüringen,Thüringen,11,true,true,true,true
+8011191,Ostseebad Binz,54.404819,13.600507,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,5,true,true,true,true
+8000196,Warburg(Westf),51.492953,9.163845,Detmold,Nordrhein-Westfalen,7,true,true,true,true
+8000189,Kaiserslautern Hbf,49.4358593,7.76862681,Rheinhessen-Pfalz,Rheinland-Pfalz,24,partial,true,true,partial
+8002549,Hamburg Hbf,53.552736,10.006909,Hamburg,Hamburg,0,0,0,0,0
+8010050,Bitterfeld,51.622861,12.31685,Dessau,Sachsen-Anhalt,9,false,true,true,true
+8000961,Dortmund-Hörde,51.487782,7.500029,Arnsberg,Nordrhein-Westfalen,6,true,true,true,true
+8000049,Braunschweig Hbf,52.252218,10.540295,Braunschweig,Niedersachsen,12,true,true,true,true
+8000214,Kreuztal,50.956029,7.991696,Arnsberg,Nordrhein-Westfalen,7,true,true,true,true
+8010109,Schönefeld(bei Berlin),52.391062,13.51271,Brandenburg,Brandenburg,0,0,0,0,0
+8006421,Wiesloch-Walldorf,49.291353,8.664146,Karlsruhe,Baden-Württemberg,5,true,true,true,true
+8000208,Köln-Ehrenfeld,50.951533,6.917276,Köln,Nordrhein-Westfalen,6,true,true,true,true
+8010382,Wittenberge,53.003115,11.762871,Brandenburg,Brandenburg,8,true,true,true,true
+8000098,Essen Hbf,51.451355,7.014793,Düsseldorf,Nordrhein-Westfalen,18,true,partial,true,true
+8000139,Günzburg,48.4605626,10.2792621,Schwaben,Bayern,10,true,true,true,true
+8000235,Ludwigsburg,48.891862,9.18542,Stuttgart,Baden-Württemberg,13,false,true,true,false
+8000192,Wanne-Eickel Hbf,51.531256,7.165783,Arnsberg,Nordrhein-Westfalen,12,partial,true,true,true
+8010309,Saalfeld(Saale),50.6502734,11.3745832,Thüringen,Thüringen,9,true,true,true,true
+8013236,Warnemünde,54.176852,12.091271,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,9,true,true,true,true
+8000275,Neustadt(Weinstr)Hbf,49.349553,8.140757,Rheinhessen-Pfalz,Rheinland-Pfalz,14,true,true,true,true
+8000116,Traunstein,47.869727,12.638801,Oberbayern,Bayern,8,true,false,true,true
+8010077,Dessau Hbf,51.839865,12.234945,Dessau,Sachsen-Anhalt,11,partial,true,true,true
+8000025,Bamberg,49.900759,10.899489,Oberfranken,Bayern,12,true,true,true,true
+8001790,Engen,47.856347,8.772786,Freiburg,Baden-Württemberg,7,partial,true,true,partial
+8004158,München-Pasing,48.149852,11.461872,Oberbayern,Bayern,14,partial,true,true,partial
+8005556,Siegburg/Bonn,50.793915,7.203026,Köln,Nordrhein-Westfalen,7,true,true,true,true
+8010125,Gera Hbf,50.883421,12.077092,Thüringen,Thüringen,9,true,true,true,true
+8000181,Husum,54.4720826,9.05595303,Schleswig-Holstein,Schleswig-Holstein,6,false,true,true,false
+8000240,Mainz Hbf,50.001117,8.25872,Rheinhessen-Pfalz,Rheinland-Pfalz,12,true,true,true,true
+8000329,Schwäbisch Gmünd,48.801011,9.787795,Stuttgart,Baden-Württemberg,5,true,true,true,true
+8012666,Potsdam Hbf,52.391509,13.0667031,Brandenburg,Brandenburg,0,0,0,0,0
+8003222,Keitum,54.888814,8.368969,Schleswig-Holstein,Schleswig-Holstein,4,true,true,true,true
+8000150,Hanau Hbf,50.120953,8.929,Darmstadt,Hessen,17,partial,true,true,partial
+8006076,Verden(Aller),52.920818,9.237855,Luneburg,Niedersachsen,8,true,true,true,true
+8000298,Passau Hbf,48.573632,13.450776,Niederbayern,Bayern,9,true,true,true,true
+8010018,Bad Kleinen,53.766974,11.466925,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,6,true,true,true,true
+8000101,Eutingen im Gäu,48.479952,8.782236,Karlsruhe,Baden-Württemberg,5,true,true,true,true
+8006339,Werdohl,51.259485,7.757544,Arnsberg,Nordrhein-Westfalen,3,true,true,true,true
+8000124,Gießen,50.579059,8.661462,Gießen,Hessen,18,true,partial,true,true
+8000251,Witten Hbf,51.435544,7.329442,Arnsberg,Nordrhein-Westfalen,6,true,true,true,true
+8000050,Bremen Hbf,53.083481,8.813834,Bremen,Bremen,14,true,true,true,true
+8005776,Stuttgart-Vaihingen,48.726279,9.113226,Stuttgart,Baden-Württemberg,12,partial,true,true,partial
+8000115,Fulda,50.5549058,9.68416929,Kassel,Hessen,13,false,true,true,partial
+8000238,Lüneburg,53.249656,10.41989,Luneburg,Niedersachsen,12,true,true,true,true
+8010113,Frankfurt(Oder),52.336416,14.546496,Brandenburg,Brandenburg,9,false,true,true,false
+8003515,Landstuhl,49.416287,7.565931,Rheinhessen-Pfalz,Rheinland-Pfalz,7,true,true,true,true
+8000002,Aalen Hbf,48.841013,10.096271,Stuttgart,Baden-Württemberg,8,true,true,true,true
+8005791,Sulz(Neckar),48.366485,8.636748,Freiburg,Baden-Württemberg,3,true,true,true,true
+8002553,Hamburg-Altona,53.552695,9.935175,Hamburg,Hamburg,0,0,0,0,0
+8002554,Hamburg-Bergedorf,53.489832,10.206171,Hamburg,Hamburg,8,true,true,true,true
+8010334,Stendal Hbf,52.594723,11.854412,Magdeburg,Sachsen-Anhalt,11,true,true,true,true
+8000147,Hamburg-Harburg,53.455908,9.991701,Hamburg,Hamburg,0,0,0,0,0
+8000207,Köln Hbf,50.94303,6.958729,Köln,Nordrhein-Westfalen,17,partial,true,true,partial
+8000096,Stuttgart Hbf,48.784084,9.181635,Stuttgart,Baden-Württemberg,0,0,0,0,0
+8000118,Gelsenkirchen Hbf,51.504903,7.102455,Munster,Nordrhein-Westfalen,9,true,true,true,true
+8070004,Frankfurt(M) Flughafen Regionalbf,50.051219,8.571251,Darmstadt,Hessen,7,partial,partial,true,partial
+8001083,Bonn-Beuel,50.738476,7.127657,Köln,Nordrhein-Westfalen,5,false,true,true,false
+8000163,Tuttlingen,47.980579,8.798542,Freiburg,Baden-Württemberg,12,true,true,true,true
+8000078,Donauwörth,48.714026,10.771443,Schwaben,Bayern,11,true,true,true,true
+8006369,Westerland(Sylt),54.906839,8.310925,Schleswig-Holstein,Schleswig-Holstein,6,false,true,true,false
+8010060,Brandenburg Hbf,52.400554,12.566138,Brandenburg,Brandenburg,9,true,false,true,true
+8000156,Heidelberg Hbf,49.403567,8.675442,Karlsruhe,Baden-Württemberg,14,partial,true,true,partial
+8000105,Frankfurt(Main)Hbf,50.107145,8.663789,Darmstadt,Hessen,0,0,0,0,0
+8010296,Rathenow,52.59964,12.35484,Brandenburg,Brandenburg,5,false,true,true,false
+8000087,Solingen Hbf,51.160766,7.004187,Düsseldorf,Nordrhein-Westfalen,8,true,true,true,true
+8010089,Dresden-Neustadt,51.065899,13.740701,Dresden,Sachsen,12,true,true,true,true
+8003701,Lingen(Ems),52.519867,7.321731,Weser-Ems,Niedersachsen,4,true,true,true,true
+8000057,Buchloe,48.033723,10.716217,Schwaben,Bayern,10,true,partial,true,true
+8000310,Remagen,50.5770029,7.23026991,Koblenz,Rheinland-Pfalz,8,true,true,true,true
+8000307,Recklinghausen Hbf,51.616359,7.20349,Munster,Nordrhein-Westfalen,9,false,true,true,false
+8001773,Emmerich,51.834175,6.25648,Düsseldorf,Nordrhein-Westfalen,3,true,true,true,true
+8000073,Singen(Hohentwiel),47.7588801,8.84126902,Freiburg,Baden-Württemberg,17,partial,partial,true,partial
+8000031,Bensheim,49.681329,8.616717,Darmstadt,Hessen,8,true,true,true,true
+8000571,Lippstadt,51.670687,8.348785,Arnsberg,Nordrhein-Westfalen,6,partial,true,true,partial
+8002159,Furth im Wald,49.309812,12.838811,Oberpfalz,Bayern,5,true,true,true,true
+8000004,Altenbeken,51.766433,8.943319,Detmold,Nordrhein-Westfalen,12,true,true,true,true
+8000039,Bingen(Rhein) Hbf,49.968729,7.884263,Rheinhessen-Pfalz,Rheinland-Pfalz,10,false,true,true,false
+8012183,Leipzig/Halle Flughafen,51.423338,12.223426,Leipzig,Sachsen,4,true,true,true,true
+8000095,Straubing,48.876978,12.574094,Niederbayern,Bayern,12,true,true,true,true
+8000068,Darmstadt Hbf,49.872503,8.629636,Darmstadt,Hessen,17,true,true,true,true
+8000513,Altena(Westf),51.301981,7.668808,Arnsberg,Nordrhein-Westfalen,5,true,true,true,true
+8002785,Herrenberg,48.593991,8.862662,Stuttgart,Baden-Württemberg,10,partial,true,true,partial
+8000263,Münster(Westf)Hbf,51.956566,7.635715,Munster,Nordrhein-Westfalen,13,true,true,true,true
+8010304,Rostock Hbf,54.078246,12.131079,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,19,true,true,true,true
+8011102,Berlin Gesundbrunnen,52.548963,13.388513,Berlin,Berlin,0,0,0,0,0
+8000080,Dortmund Hbf,51.517896,7.45929,Arnsberg,Nordrhein-Westfalen,24,true,true,true,true
+8010224,Magdeburg Hbf,52.1305112,11.626963,Magdeburg,Sachsen-Anhalt,15,true,true,true,true
+8001833,Ergenzingen,48.489534,8.809857,Tübingen,Baden-Württemberg,4,true,true,true,true
+8000312,Rendsburg,54.302262,9.671134,Schleswig-Holstein,Schleswig-Holstein,6,false,true,true,false
+8000128,Göttingen,51.536815,9.926072,Braunschweig,Niedersachsen,12,partial,true,true,partial
+8000331,Andernach,50.434542,7.404839,Koblenz,Rheinland-Pfalz,8,partial,true,true,true
+8004449,Norddeich,53.621579,7.160824,Weser-Ems,Niedersachsen,3,false,true,true,false
+8010079,Doberlug-Kirchhain,51.620576,13.564241,Brandenburg,Brandenburg,10,false,true,true,false
+8010066,Bützow,53.8371137,11.9981942,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,5,true,true,true,true
+8010139,Greifswald,54.092923,13.370262,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,5,true,true,true,true
+8004563,Oberndorf(Neckar),48.295669,8.575514,Freiburg,Baden-Württemberg,4,partial,true,true,partial
+8001751,Ellwangen,48.964121,10.129681,Stuttgart,Baden-Württemberg,6,partial,partial,true,true
+8000114,Fürth(Bay)Hbf,49.469707,10.989988,Mittelfranken,Bayern,12,false,true,true,false
+8000237,Lübeck Hbf,53.867547,10.669821,Schleswig-Holstein,Schleswig-Holstein,12,true,true,true,true
+8000102,Finnentrop,51.173048,7.964563,Arnsberg,Nordrhein-Westfalen,10,partial,true,true,partial
+8000236,Ludwigshafen(Rh)Hbf,49.476529,8.433042,Rheinhessen-Pfalz,Rheinland-Pfalz,16,false,partial,true,false
+8000322,Rottweil,48.165304,8.639295,Freiburg,Baden-Württemberg,12,partial,true,true,partial
+8000383,Wetzlar,50.565631,8.503819,Gießen,Hessen,8,true,partial,true,true
+8000064,Celle,52.6204548,10.062468,Luneburg,Niedersachsen,9,true,true,true,true
+8070003,Frankfurt(M) Flughafen Fernbf,50.053167,8.570185,Darmstadt,Hessen,6,false,true,true,false
+8000252,Minden(Westf),52.290138,8.934728,Detmold,Nordrhein-Westfalen,9,true,true,true,true
+8000316,Rheine,52.276299,7.434255,Munster,Nordrhein-Westfalen,8,true,true,true,true
+8010217,Lübben(Spreewald),51.939737,13.877182,Brandenburg,Brandenburg,5,true,true,true,true
+8011162,Berlin Ostkreuz,52.503037,13.469105,Berlin,Berlin,0,0,0,0,0
+8000070,Delmenhorst,53.052792,8.629758,Weser-Ems,Niedersachsen,5,true,true,true,true
+8010255,Berlin Ostbahnhof,52.5104881,13.4346807,Berlin,Berlin,0,0,0,0,0
+8000522,Hude,53.109429,8.460956,Weser-Ems,Niedersachsen,6,true,true,true,true
+8000127,Göppingen,48.700027,9.651969,Stuttgart,Baden-Württemberg,11,false,true,true,false
+8000259,Mülheim(Ruhr)Hbf,51.431342,6.88651,Düsseldorf,Nordrhein-Westfalen,6,true,true,true,true
+8003368,Köln Messe/Deutz,50.940874,6.975001,Köln,Nordrhein-Westfalen,0,0,0,0,0
+8000297,Paderborn Hbf,51.712979,8.740505,Detmold,Nordrhein-Westfalen,8,true,true,true,true
+8000162,Herford,52.119609,8.663643,Detmold,Nordrhein-Westfalen,14,true,true,true,true
+8010355,Velgast,54.277316,12.803137,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,5,partial,true,true,true
+8000302,Plochingen,48.71308,9.41081,Stuttgart,Baden-Württemberg,17,false,true,true,false
+8000059,Bünde(Westf),52.202075,8.573876,Detmold,Nordrhein-Westfalen,5,true,true,true,true
+8000320,Rosenheim,47.850018,12.119202,Oberbayern,Bayern,12,partial,true,true,true
+8000368,Wabern(Bz Kassel),51.103134,9.35804,Kassel,Hessen,8,true,true,true,true
+8000074,Dillenburg,50.7349426,8.29462141,Gießen,Hessen,8,false,true,true,false
+8010297,Riesa,51.309654,13.287734,Dresden,Sachsen,12,partial,partial,true,partial
+8000111,Friedberg(Hess),50.332606,8.762056,Darmstadt,Hessen,15,partial,true,true,partial
+8011862,Hermsdorf-Klosterlausnitz,50.903779,11.858626,Thüringen,Thüringen,3,true,true,true,true
+8000103,Flensburg,54.774039,9.436526,Schleswig-Holstein,Schleswig-Holstein,6,partial,true,true,partial
+8010099,Elsterwerda,51.459677,13.516428,Brandenburg,Brandenburg,5,true,true,true,true
+8005424,Schorndorf,48.80715,9.52631,Stuttgart,Baden-Württemberg,11,false,true,true,false
+8010205,Leipzig Hbf,51.3454712,12.3820639,Leipzig,Sachsen,0,0,0,0,0
+8000013,Augsburg Hbf,48.365441,10.88557,Schwaben,Bayern,21,false,true,false,partial
+8010404,Berlin-Spandau,52.5346481,13.1968975,Berlin,Berlin,0,0,0,0,0
+8003770,Ludwigsstadt,50.486583,11.382989,Oberfranken,Bayern,5,partial,true,true,partial
+8010250,Neustrelitz Hbf,53.359255,13.074603,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,6,true,true,true,true
+8000142,Hagen Hbf,51.362747,7.460249,Arnsberg,Nordrhein-Westfalen,19,false,true,true,false
+8000045,Boppard Hbf,50.2314224,7.58601397,Koblenz,Rheinland-Pfalz,5,false,true,true,false
+8003020,Siegen-Weidenau,50.895966,8.029842,Arnsberg,Nordrhein-Westfalen,5,true,true,true,true
+8000058,Büchen,53.474972,10.623298,Schleswig-Holstein,Schleswig-Holstein,8,true,false,true,true
+8010033,Bergen auf Rügen,54.4205,13.417821,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,6,true,true,true,true
+8010368,Weißenfels,51.204615,11.970926,Halle,Sachsen-Anhalt,6,true,true,true,true
+8000377,Weinheim(Bergstr)Hbf,49.553302,8.665351,Karlsruhe,Baden-Württemberg,14,partial,true,true,partial
+8004751,Papenburg(Ems),53.089706,7.386708,Weser-Ems,Niedersachsen,4,true,true,true,true
+8000290,Offenburg,48.476475,7.946723,Freiburg,Baden-Württemberg,20,true,true,true,true
+8010361,Waren(Müritz),53.521512,12.680678,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,5,true,true,true,true
+8000262,München Ost,48.12744,11.604971,Oberbayern,Bayern,18,true,true,true,true
+8010405,Berlin-Wannsee,52.4209723,13.1795275,Berlin,Berlin,0,0,0,0,0
+8005362,Schleswig,54.499457,9.53814,Schleswig-Holstein,Schleswig-Holstein,4,true,true,true,true
+8000261,München Hbf,48.140232,11.558335,Oberbayern,Bayern,0,0,0,0,0
+8000294,Osnabrück Hbf,52.272851,8.061781,Weser-Ems,Niedersachsen,14,false,true,true,false
+8000279,Nienburg(Weser),52.645566,9.217753,Hannover,Niedersachsen,9,true,true,true,true
+8003866,Marienhafe,53.5192358,7.27436006,Weser-Ems,Niedersachsen,4,true,true,true,true
+8002370,Lennestadt-Grevenbrück,51.141781,8.017977,Arnsberg,Nordrhein-Westfalen,3,false,true,true,true
+8001443,Diepholz,52.604771,8.380334,Hannover,Niedersachsen,5,true,true,true,true
+8003065,Immenstadt,47.559203,10.213999,Schwaben,Bayern,5,false,false,true,false
+8010216,Ludwigslust,53.334671,11.494491,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,8,partial,true,true,true
+8000732,Bad Oeynhausen,52.205398,8.796523,Detmold,Nordrhein-Westfalen,7,true,true,true,true
+8000108,Freilassing,47.836916,12.977193,Oberbayern,Bayern,14,true,partial,true,true
+8000770,Bad Zwischenahn,53.182547,8.003123,Weser-Ems,Niedersachsen,4,true,true,true,true
+8000323,Saarbrücken Hbf,49.241065,6.991021,Saarland,Saarland,13,true,true,true,true
+8010310,Salzwedel,52.858113,11.162035,Magdeburg,Sachsen-Anhalt,6,false,true,true,false
+8005616,Spaichingen,48.068987,8.740147,Freiburg,Baden-Württemberg,5,partial,true,true,partial
+8011957,Jena West,50.923286,11.577848,Thüringen,Thüringen,4,true,true,true,true
+8003978,Meppen,52.696021,7.298015,Weser-Ems,Niedersachsen,5,true,true,true,true
+8010222,Lutherstadt Wittenberg Hbf,51.867811,12.662285,Dessau,Sachsen-Anhalt,10,true,true,true,true
+8077770,Dagebüll Kirche,54.730283,8.729485,Schleswig-Holstein,Schleswig-Holstein,0,0,0,0,0
+8000301,Plattling,48.779619,12.86394,Niederbayern,Bayern,11,false,true,true,false
+8012763,Ribnitz-Damgarten West,54.239176,12.436965,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,4,true,true,true,true
+8011051,Apolda,51.03094,11.526136,Thüringen,Thüringen,5,true,true,true,true
+8000168,Uelzen,52.969781,10.553053,Luneburg,Niedersachsen,12,true,true,true,true
+8003693,Lindau-Reutin,47.552384,9.703292,Schwaben,Bayern,6,true,true,true,true
+8000194,Kaufbeuren,47.875432,10.629496,Schwaben,Bayern,7,false,false,true,false
+8000152,Hannover Hbf,52.376761,9.741021,Hannover,Niedersachsen,18,partial,true,true,partial
+8079022,Deezbüll,54.77697,8.818274,Schleswig-Holstein,Schleswig-Holstein,0,0,0,0,0
+8004585,Oberstdorf,47.411032,10.278097,Schwaben,Bayern,7,partial,false,true,true
+8004838,Plettenberg,51.23193,7.868913,Arnsberg,Nordrhein-Westfalen,8,true,true,true,true
+8000159,Helmstedt,52.222086,11.010553,Braunschweig,Niedersachsen,6,true,true,true,true
+8011956,Jena Paradies,50.924856,11.587461,Thüringen,Thüringen,4,true,true,true,true
+8000149,Hamm(Westf)Hbf,51.678078,7.807821,Arnsberg,Nordrhein-Westfalen,18,partial,true,true,partial
+8000076,Soest,51.578419,8.104589,Arnsberg,Nordrhein-Westfalen,6,true,true,true,true
+8000728,Bad Nauheim,50.367904,8.749334,Darmstadt,Hessen,5,true,true,true,true
+8007768,Norddeich Mole,53.624315,7.158806,Weser-Ems,Niedersachsen,2,true,true,true,true
+8004343,Niebüll,54.789605,8.834572,Schleswig-Holstein,Schleswig-Holstein,0,0,0,0,0
+8000299,Pforzheim Hbf,48.894152,8.703099,Karlsruhe,Baden-Württemberg,11,true,true,true,true
+8000249,Memmingen,47.985581,10.186853,Schwaben,Bayern,8,false,true,true,false
+8000129,Treysa,50.910661,9.185673,Kassel,Hessen,7,true,true,true,true
+8001920,Esslingen(Neckar),48.7385453,9.30052221,Stuttgart,Baden-Württemberg,11,partial,true,true,partial
+8010073,Cottbus Hbf,51.750957,14.324162,Brandenburg,Brandenburg,16,true,true,true,true
+8003400,Konstanz,47.658754,9.177312,Freiburg,Baden-Württemberg,5,true,true,true,true
+8000082,Düsseldorf Flughafen,51.292009,6.786836,Düsseldorf,Nordrhein-Westfalen,7,true,true,true,true
+8000260,Würzburg Hbf,49.801796,9.93578,Unterfranken,Bayern,17,true,true,true,true
+8004885,Prien am Chiemsee,47.855513,12.346615,Oberbayern,Bayern,6,true,true,true,true
+8010396,Züssow,53.973879,13.548191,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,3,true,true,true,true
+8010036,Berlin-Lichtenberg,52.5101355,13.4966934,Berlin,Berlin,0,0,0,0,0
+8006053,Vaihingen(Enz),48.948118,8.957632,Stuttgart,Baden-Württemberg,6,false,true,true,false
+8001768,Emden Hbf,53.369036,7.195176,Weser-Ems,Niedersachsen,8,true,true,true,true
+8006552,Wolfsburg Hbf,52.429498,10.787784,Braunschweig,Niedersachsen,10,true,true,true,true
+8007769,Dagebüll Mole,54.729909,8.690989,Schleswig-Holstein,Schleswig-Holstein,0,0,0,0,0
+8004760,Peine,52.318942,10.232145,Braunschweig,Niedersachsen,4,true,true,true,true
+8000055,Bruchsal,49.124622,8.589649,Karlsruhe,Baden-Württemberg,21,partial,true,true,partial
+8000225,Leer(Ostfriesl),53.23165,7.465283,Weser-Ems,Niedersachsen,5,true,true,true,true
+8000067,Crailsheim,49.137872,10.064326,Stuttgart,Baden-Württemberg,7,false,true,true,false
+8010366,Weimar,50.991487,11.326458,Thüringen,Thüringen,8,false,true,true,false
+8003446,Kronach,50.239612,11.320115,Oberfranken,Bayern,8,false,true,true,false
+8010022,Bad Schandau,50.9192886,14.1375375,Dresden,Sachsen,6,true,true,true,true
+8001995,Fischen,47.456591,10.271717,Schwaben,Bayern,7,true,true,true,true
+8010159,Halle(Saale)Hbf,51.477509,11.987085,Halle,Sachsen-Anhalt,20,true,true,true,true
+8000879,Bad Bentheim,52.30985,7.158539,Weser-Ems,Niedersachsen,5,true,true,true,true
+8000176,Homburg(Saar)Hbf,49.328082,7.337035,Saarland,Saarland,12,partial,true,true,partial
+8000199,Kiel Hbf,54.314985,10.131976,Schleswig-Holstein,Schleswig-Holstein,11,true,true,true,true
+8000291,Oldenburg(Oldb)Hbf,53.144323,8.222713,Weser-Ems,Niedersachsen,11,true,true,true,true
+8000177,Horb,48.441471,8.688982,Karlsruhe,Baden-Württemberg,10,false,true,true,false
+8000091,Steinach(bei Rothenburg ob der Tauber),49.453218,10.273535,Mittelfranken,Bayern,8,false,false,true,false
+8013025,Stadtroda,50.868216,11.722792,Thüringen,Thüringen,4,true,true,true,true
+8002042,Frankfurt(Main)West,50.1192986,8.63939524,Darmstadt,Hessen,8,false,true,true,false
+8000664,Augustfehn,53.22089,7.759659,Weser-Ems,Niedersachsen,4,true,true,true,true
+8003487,Hannover Messe/Laatzen,52.316899,9.792863,Hannover,Niedersachsen,9,true,true,true,true
+8000337,Marburg(Lahn),50.819272,8.775014,Gießen,Hessen,9,true,true,true,true
+8002041,Frankfurt(Main)Süd,50.099365,8.686457,Darmstadt,Hessen,14,false,true,true,false
+8001787,Bad Endorf,47.905066,12.301558,Oberbayern,Bayern,4,partial,true,true,partial
+8010195,Köthen,51.751929,11.989358,Dessau,Sachsen-Anhalt,8,false,true,true,false
+8002461,Gütersloh Hbf,51.906941,8.385071,Detmold,Nordrhein-Westfalen,6,true,true,true,true
+8000041,Bochum Hbf,51.478609,7.223275,Arnsberg,Nordrhein-Westfalen,12,true,true,true,true
+8000122,Treuchtlingen,48.961267,10.908159,Mittelfranken,Bayern,11,true,true,true,true
+8000532,Lennestadt-Altenhundem,51.1041181,8.07147503,Arnsberg,Nordrhein-Westfalen,6,true,true,true,true
+8000046,Siegen Hbf,50.875939,8.016508,Arnsberg,Nordrhein-Westfalen,8,true,true,true,true
+8000155,Heide(Holst),54.193563,9.101029,Schleswig-Holstein,Schleswig-Holstein,8,true,true,true,true
+8010240,Naumburg(Saale)Hbf,51.163071,11.796984,Halle,Sachsen-Anhalt,8,partial,true,true,partial
+8003102,Itzehoe,53.923873,9.510287,Schleswig-Holstein,Schleswig-Holstein,6,true,true,true,true
+8000044,Bonn Hbf,50.732008,7.097136,Köln,Nordrhein-Westfalen,9,partial,true,true,partial
+8000085,Düsseldorf Hbf,51.219962,6.794319,Düsseldorf,Nordrhein-Westfalen,24,true,partial,true,true
+8000191,Karlsruhe Hbf,48.993515,8.402181,Karlsruhe,Baden-Württemberg,48,partial,true,true,partial
+8003184,Karlsruhe-Durlach,49.002328,8.462822,Karlsruhe,Baden-Württemberg,18,true,true,true,true
+8000244,Mannheim Hbf,49.479354,8.468921,Karlsruhe,Baden-Württemberg,21,partial,true,true,partial
+8010136,Gotha,50.93907,10.712568,Thüringen,Thüringen,9,partial,true,true,partial
+8000197,Kempten(Allgäu)Hbf,47.711745,10.31761,Schwaben,Bayern,8,false,false,true,partial
+8000774,Baden-Baden,48.790327,8.190831,Karlsruhe,Baden-Württemberg,11,true,true,true,true
+8000800,Norden,53.588196,7.218913,Weser-Ems,Niedersachsen,4,true,true,true,true
+8010324,Schwerin Hbf,53.634739,11.407455,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,6,true,true,true,true
+8001767,Emden Außenhafen,53.344469,7.186179,Weser-Ems,Niedersachsen,0,0,0,0,0
+8073368,Köln Messe/Deutz Gl.11-12,50.941721,6.974067,Köln,Nordrhein-Westfalen,0,0,0,0,0
+8074343,Niebüll neg,54.78955,8.832959,Schleswig-Holstein,Schleswig-Holstein,6,true,true,true,true
+8098262,München Hbf Gl.5-10,48.140094,11.555371,Oberbayern,Bayern,0,0,0,0,0
+8098160,Berlin Hbf,52.525592,13.369545,Berlin,Berlin,23,partial,partial,true,true
+8001055,Böblingen,48.687888,9.004432,Stuttgart,Baden-Württemberg,12,partial,true,true,partial
+8000339,Mühlacker,48.953132,8.845826,Karlsruhe,Baden-Württemberg,9,true,true,true,true
+8000271,Neumünster,54.076336,9.980031,Schleswig-Holstein,Schleswig-Holstein,13,partial,true,true,partial
+8010268,Pasewalk,53.515311,13.989391,Mecklenburg-Vorpommern,Mecklenburg-Vorpommern,8,true,true,true,true
+8005940,Übersee,47.822083,12.487401,Oberbayern,Bayern,5,false,true,true,false
