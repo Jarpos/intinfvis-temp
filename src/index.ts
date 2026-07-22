@@ -1080,12 +1080,50 @@ function setupStationFilterPanel() {
     );
   }
 
+  function formatStationSelectionCount(stations: Station[]) {
+    const selectedCount = stations.reduce(
+      (count, station) =>
+        count + Number(selectedStationNames.has(station.name)),
+      0,
+    );
+    const totalCount = stations.length;
+    const formattedTotal = totalCount.toLocaleString("de-DE");
+
+    if (selectedCount === totalCount) {
+      return formattedTotal;
+    }
+
+    return `${selectedCount.toLocaleString("de-DE")} / ${formattedTotal}`;
+  }
+
   function stationsForCurrentRegion() {
     return localStations.filter(
       (station) =>
         stationState(station) === selectedState &&
         stationRegion(station) === selectedRegion,
     );
+  }
+
+  function stationsForCurrentListing() {
+    const query = searchInput.value.trim().toLowerCase();
+
+    if (query) {
+      return localStations.filter((station) =>
+        station.name.toLowerCase().includes(query),
+      );
+    }
+
+    if (selectedRegion) {
+      return stationsForCurrentRegion();
+    }
+
+    if (selectedState) {
+      return localStations.filter(
+        (station) => stationState(station) === selectedState,
+      );
+    }
+
+    return localStations;
   }
 
   function syncListToFocusedState(state: string | null) {
@@ -1100,7 +1138,7 @@ function setupStationFilterPanel() {
 
   function makeDrillRow(
     label: string,
-    count: number,
+    stations: Station[],
     onClick: () => void,
     secondaryLabel?: string,
   ) {
@@ -1130,7 +1168,7 @@ function setupStationFilterPanel() {
     const badge = document.createElement("span");
     badge.className =
       "rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500";
-    badge.textContent = count.toLocaleString("de-DE");
+    badge.textContent = formatStationSelectionCount(stations);
 
     button.append(textWrap, badge);
     return button;
@@ -1196,7 +1234,7 @@ function setupStationFilterPanel() {
   function renderStationList() {
     const query = searchInput.value.trim().toLowerCase();
 
-    countText.textContent = `${selectedStationNames.size} of ${allStationNames.size} selected`;
+    countText.textContent = `${formatStationSelectionCount(localStations)} stations`;
     list.replaceChildren();
 
     if (query) {
@@ -1206,7 +1244,7 @@ function setupStationFilterPanel() {
         ),
       );
 
-      countText.textContent = `Search results - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+      countText.textContent = `Search results - ${formatStationSelectionCount(visibleStations)} stations`;
       visibleStations.forEach((station) =>
         appendStationCheckbox(station, true),
       );
@@ -1224,18 +1262,17 @@ function setupStationFilterPanel() {
     if (!selectedState) {
       const stateRows = sortByName(
         Array.from(
-          d3.rollup(
+          d3.group(
             localStations,
-            (stateStations) => stateStations.length,
             stationState,
           ),
-          ([name, count]) => ({ name, count }),
+          ([name, stations]) => ({ name, stations }),
         ),
       );
 
-      stateRows.forEach(({ name, count }) => {
+      stateRows.forEach(({ name, stations }) => {
         list.append(
-          makeDrillRow(name, count, () => {
+          makeDrillRow(name, stations, () => {
             focusState(name, true);
           }),
         );
@@ -1263,22 +1300,21 @@ function setupStationFilterPanel() {
       );
       const regionRows = sortByName(
         Array.from(
-          d3.rollup(
+          d3.group(
             stateStations,
-            (regionStations) => regionStations.length,
             stationRegion,
           ),
-          ([name, count]) => ({ name, count }),
+          ([name, stations]) => ({ name, stations }),
         ),
       );
 
-      countText.textContent = `${selectedState} - ${stateStations.length.toLocaleString("de-DE")} stations`;
+      countText.textContent = `${selectedState} - ${formatStationSelectionCount(stateStations)} stations`;
 
-      regionRows.forEach(({ name, count }) => {
+      regionRows.forEach(({ name, stations }) => {
         list.append(
           makeDrillRow(
             name,
-            count,
+            stations,
             () => {
               selectedRegion = name;
               renderStationList();
@@ -1307,7 +1343,7 @@ function setupStationFilterPanel() {
 
     const visibleStations = sortByName(stationsForCurrentRegion());
 
-    countText.textContent = `${selectedRegion}, ${selectedState} - ${visibleStations.length.toLocaleString("de-DE")} stations`;
+    countText.textContent = `${selectedRegion}, ${selectedState} - ${formatStationSelectionCount(visibleStations)} stations`;
 
     visibleStations.forEach((station) => appendStationCheckbox(station));
 
@@ -1321,12 +1357,16 @@ function setupStationFilterPanel() {
 
   searchInput.addEventListener("input", renderStationList);
   selectAllButton.addEventListener("click", () => {
-    localStations.forEach((station) => selectedStationNames.add(station.name));
+    stationsForCurrentListing().forEach((station) =>
+      selectedStationNames.add(station.name),
+    );
     renderTrainNetwork();
     renderStationList();
   });
   clearButton.addEventListener("click", () => {
-    selectedStationNames.clear();
+    stationsForCurrentListing().forEach((station) =>
+      selectedStationNames.delete(station.name),
+    );
     renderTrainNetwork();
     renderStationList();
   });
